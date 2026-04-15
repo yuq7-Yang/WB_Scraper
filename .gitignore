@@ -1,0 +1,7 @@
+__pycache__/
+.pytest_cache/
+*.pyc
+weibo.db
+logs/
+.env
+reply_templates.json
