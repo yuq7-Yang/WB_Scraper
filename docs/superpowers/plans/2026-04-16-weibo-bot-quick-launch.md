@@ -23,18 +23,23 @@ Create `启动面板.bat` in the repository root with this exact content:
 @echo off
 setlocal
 
-pushd "%~dp0"
-
-where python >nul 2>nul
-if errorlevel 1 (
-    echo 未找到 Python，请先安装 Python，或确认 python 命令可以在命令行中使用。
+pushd "%~dp0" || (
+    echo Failed to enter the project directory.
     echo.
     pause
     exit /b 1
 )
 
-echo 正在启动微博抓取面板...
-echo 项目目录：%CD%
+where python >nul 2>nul
+if errorlevel 1 (
+    echo Python was not found. Please install Python or make sure the python command is available.
+    echo.
+    pause
+    exit /b 1
+)
+
+echo Starting Weibo dashboard...
+echo Project directory: %CD%
 echo.
 
 python -m weibo_bot.dashboard
@@ -44,7 +49,7 @@ popd
 
 if not "%EXIT_CODE%"=="0" (
     echo.
-    echo 面板启动失败，错误码：%EXIT_CODE%
+    echo Dashboard startup failed. Exit code: %EXIT_CODE%
     pause
 )
 
