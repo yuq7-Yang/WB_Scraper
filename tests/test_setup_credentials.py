@@ -6,4 +6,4 @@ def test_build_env_content_accepts_one_cookie():
 
     assert 'SCRAPFLY_KEY="key"' in content
     assert 'WEIBO_COOKIES="SUB=one;"' in content
-    assert 'DRY_RUN_REPLIES="true"' in content
+    assert 'ENABLE_REAL_REPLIES="false"' in content

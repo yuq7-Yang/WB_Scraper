@@ -14,6 +14,7 @@ from .config import (
     DEFAULT_MAX_PER_KEYWORD,
     DEFAULT_MAX_TOTAL,
     ENABLE_REAL_REPLIES,
+    BEAUTY_TERMS,
     KEYWORDS,
 )
 from .replier import run_reply
@@ -67,6 +68,9 @@ HTML = """
   * { box-sizing: border-box; }
   body { font-family: "Microsoft YaHei", Arial, sans-serif; margin: 0; color: var(--ink); background: #f7f7f8; }
   header { background: #ffffff; border-bottom: 1px solid var(--line); padding: 16px 24px; display: flex; justify-content: space-between; gap: 16px; align-items: center; }
+  .brand { align-items: center; display: flex; gap: 12px; min-width: 0; }
+  .brand-logo { display: block; height: 40px; max-width: 180px; object-fit: contain; }
+  .brand-title { color: #c2185b; font-size: 20px; font-weight: 800; line-height: 1.3; overflow-wrap: anywhere; }
   h1 { margin: 0; font-size: 20px; line-height: 1.3; }
   h2 { font-size: 15px; margin: 0 0 10px; }
   main { padding: 16px 24px 32px; }
@@ -114,7 +118,10 @@ HTML = """
 </head>
 <body>
 <header>
-  <h1>微博美业拓客面板</h1>
+  <div class="brand">
+    <img src="/static/logo.png" alt="CIBE美博会" class="brand-logo" onerror="this.style.display='none'">
+    <div class="brand-title">美业精准拓客面板</div>
+  </div>
   <div id="credits">Credits：请在 Scrapfly Dashboard 查看</div>
 </header>
 <main>
@@ -199,6 +206,7 @@ HTML = """
 <script>
 const PRESETS = {{ keywords|tojson }};
 let TEMPLATES = {{ templates|tojson }};
+const BEAUTY_TERMS = {{ beauty_terms|tojson }};
 const REAL_SEND_ENABLED = {{ real_send_enabled|tojson }};
 const statusLabels = {
   pending: ["待回复", "pending"],
@@ -254,10 +262,20 @@ function getSelectedKeywords() {
   return [...new Set([...checked, ...extra])];
 }
 
+function isBeautyKeyword(keyword) {
+  return BEAUTY_TERMS.some(term => keyword.includes(term));
+}
+
 function startScrape() {
   const keywords = getSelectedKeywords();
   if (!keywords.length) {
     alert("请至少勾选一个关键词或手动输入关键词");
+    return;
+  }
+  const extra = document.getElementById("kwExtra").value.split("\\n").map(item => item.trim()).filter(Boolean);
+  const invalid = extra.filter(keyword => !isBeautyKeyword(keyword));
+  if (invalid.length) {
+    alert(`关键词不在美业领域范围内，已拦截：\\n\\n${invalid.join("、")}\\n\\n请修改后重试。`);
     return;
   }
   document.getElementById("scrapeBtn").disabled = true;
@@ -452,6 +470,7 @@ def index():
         HTML,
         keywords=KEYWORDS,
         templates=template_store.load_templates(),
+        beauty_terms=BEAUTY_TERMS,
         default_max_per_keyword=DEFAULT_MAX_PER_KEYWORD,
         default_max_total=DEFAULT_MAX_TOTAL,
         real_send_enabled=ENABLE_REAL_REPLIES,

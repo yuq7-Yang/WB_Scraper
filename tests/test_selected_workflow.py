@@ -29,9 +29,9 @@ def test_run_scrape_limits_total_across_keywords(tmp_path, monkeypatch):
         scraper,
         "fetch_comments",
         lambda *args, **kwargs: [
-            {"source": "来自上海", "user": {"screen_name": "one"}, "text": "a"},
-            {"source": "来自浙江", "user": {"screen_name": "two"}, "text": "b"},
-            {"source": "来自江苏", "user": {"screen_name": "three"}, "text": "c"},
+            {"source": "来自上海", "user": {"screen_name": "one"}, "text": "想做美甲"},
+            {"source": "来自浙江", "user": {"screen_name": "two"}, "text": "求推荐"},
+            {"source": "来自江苏", "user": {"screen_name": "three"}, "text": "培训多少钱"},
         ],
     )
 
@@ -121,82 +121,33 @@ def test_make_scenario_returns_scrapfly_list():
     assert scenario[4]["fill"]["value"] == "hello"
 
 
-class FakeResponse:
-    def __init__(self, payload):
-        self.payload = payload
-        self.text = str(payload)
+def test_send_real_reply_uses_scrapfly_js_scenario(monkeypatch):
+    calls = []
 
-    def json(self):
-        return self.payload
+    class FakeClient:
+        def __init__(self, key):
+            self.key = key
 
+        def scrape(self, config):
+            calls.append(config)
 
-class FakeSession:
-    def __init__(self, config_payload, post_payload):
-        self.config_payload = config_payload
-        self.post_payload = post_payload
-        self.headers = {}
-        self.post_calls = []
+    class FakeScrapeConfig(dict):
+        def __init__(self, **kwargs):
+            super().__init__(kwargs)
 
-    def get(self, url, timeout=30):
-        return FakeResponse(self.config_payload)
-
-    def post(self, url, data=None, timeout=30):
-        self.post_calls.append((url, data))
-        return FakeResponse(self.post_payload)
-
-
-def test_send_real_reply_uses_weibo_api_success(monkeypatch):
-    session = FakeSession(
-        {"data": {"login": True, "st": "token"}},
-        {"ok": 1, "data": {"id": "comment-id"}},
-    )
-    monkeypatch.setattr(replier.requests, "Session", lambda: session)
+    monkeypatch.setattr(replier, "SCRAPFLY_KEY", "key", raising=False)
     monkeypatch.setattr(replier, "COOKIES", ["cookie"], raising=False)
+    monkeypatch.setattr(replier, "ScrapflyClient", FakeClient, raising=False)
+    monkeypatch.setattr(replier, "ScrapeConfig", FakeScrapeConfig, raising=False)
 
     ok, info = replier._send_real_reply({"post_id": "1001"}, "hello", cookie_index=0)
 
     assert ok is True
     assert info == "hello"
-    assert session.post_calls == [
-        ("https://m.weibo.cn/api/comments/create", {"content": "hello", "mid": "1001", "st": "token"})
-    ]
-
-
-def test_send_real_reply_uses_comment_reply_api_when_comment_id_exists(monkeypatch):
-    session = FakeSession(
-        {"data": {"login": True, "st": "token"}},
-        {"ok": 1, "data": {"id": "reply-id"}},
-    )
-    monkeypatch.setattr(replier.requests, "Session", lambda: session)
-    monkeypatch.setattr(replier, "COOKIES", ["cookie"], raising=False)
-
-    ok, info = replier._send_real_reply(
-        {"post_id": "1001", "comment_id": "2001"},
-        "hello",
-        cookie_index=0,
-    )
-
-    assert ok is True
-    assert info == "hello"
-    assert session.post_calls == [
-        (
-            "https://m.weibo.cn/api/comments/reply",
-            {"content": "hello", "mid": "1001", "cid": "2001", "st": "token"},
-        )
-    ]
-
-
-def test_send_real_reply_rejects_logged_out_cookie(monkeypatch):
-    session = FakeSession({"data": {"login": False, "st": "token"}}, {"ok": 1})
-    monkeypatch.setattr(replier.requests, "Session", lambda: session)
-    monkeypatch.setattr(replier, "COOKIES", ["cookie"], raising=False)
-
-    try:
-        replier._send_real_reply({"post_id": "1001"}, "hello", cookie_index=0)
-    except RuntimeError as exc:
-        assert "not logged in" in str(exc)
-    else:
-        raise AssertionError("logged out cookie was accepted")
+    assert calls[0]["url"] == "https://m.weibo.cn/detail/1001"
+    assert calls[0]["headers"]["Cookie"] == "cookie"
+    assert calls[0]["render_js"] is True
+    assert calls[0]["js_scenario"]
 
 
 def test_api_scrape_accepts_selected_keywords_and_limits(monkeypatch):
@@ -261,3 +212,19 @@ def test_dashboard_includes_updated_controls_and_safety_copy():
     assert 'class="real-send-confirm"' in html
     assert ".real-send-confirm { align-items: center; display: flex;" in html
     assert "真实发送" in html
+    assert "BEAUTY_TERMS" in html
+    assert "不在美业领域范围内" in html
+
+
+def test_dashboard_matches_plan_branding_and_blocks_invalid_keywords():
+    client = dashboard.app.test_client()
+
+    response = client.get("/")
+
+    html = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert 'src="/static/logo.png"' in html
+    assert "CIBE美博会" in html
+    assert "美业精准拓客面板" in html
+    assert "已拦截" in html
+    assert "confirm(`以下关键词不在美业领域范围内" not in html

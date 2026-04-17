@@ -3,9 +3,18 @@ from __future__ import annotations
 import json
 import time
 import urllib.parse
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
-from .config import COOKIES, EAST_CHINA, KEYWORDS, MAX_COMMENTS_PER_KEYWORD, SCRAPFLY_KEY
+from .config import (
+    BEAUTY_TERMS,
+    COOKIES,
+    EAST_CHINA,
+    INTENT_KEYWORDS,
+    KEYWORDS,
+    MAX_COMMENTS_PER_KEYWORD,
+    SCRAPFLY_KEY,
+)
 from .db import init_db, insert_lead
 
 
@@ -32,13 +41,41 @@ def is_east_china(source: str | None) -> bool:
     return bool(source and any(region in source for region in EAST_CHINA))
 
 
+def is_beauty_keyword(keyword: str) -> bool:
+    return any(term in keyword for term in BEAUTY_TERMS)
+
+
+def has_intent(text: str | None) -> bool:
+    return bool(text and any(keyword in text for keyword in INTENT_KEYWORDS))
+
+
+def _parse_weibo_time(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%a %b %d %H:%M:%S %z %Y")
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_recent(created_at: str | None, days: int = 90) -> bool:
+    parsed = _parse_weibo_time(created_at)
+    if parsed is None:
+        return True
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    return parsed >= cutoff
+
+
 def extract_post_ids(data: dict[str, Any]) -> list[str]:
     posts = []
     for card in data.get("data", {}).get("cards", []):
         mblog = card.get("mblog", {})
         post_id = mblog.get("id")
-        if card.get("card_type") == 9 and post_id:
-            posts.append(str(post_id))
+        if card.get("card_type") != 9 or not post_id:
+            continue
+        if not _is_recent(mblog.get("created_at")):
+            continue
+        posts.append(str(post_id))
     return posts
 
 
@@ -115,11 +152,12 @@ def run_scrape(
                 if found_for_keyword >= max_per_keyword or total_found >= max_total:
                     break
                 source = comment.get("source", "")
-                if is_east_china(source):
+                text = comment.get("text", "")
+                if is_east_china(source) and has_intent(text):
                     inserted = insert_lead(
                         user_name=comment.get("user", {}).get("screen_name", ""),
                         location=source,
-                        comment_text=comment.get("text", ""),
+                        comment_text=text,
                         comment_id=str(comment.get("id") or comment.get("idstr") or "") or None,
                         post_id=post_id,
                         keyword=keyword,

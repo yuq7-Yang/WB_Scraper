@@ -1,6 +1,6 @@
 # 微博美业拓客面板
 
-这是根据 `微博美甲美睫数据采集计划书.md` 搭建的第一版本地工具。当前版本默认采用安全模式：采集可以在配置 Scrapfly 和 Cookie 后运行，回复按钮只做 dry-run 预演，不会真实发送微博回复。
+这是根据 `微博美甲美睫数据采集计划书.md` V5.0 搭建的本地面板工具。当前版本支持关键词勾选采集、华东用户筛选、话术选择、批量处理、CSV 导出，并保留真实发送保护：只有 `.env` 开启真实发送且面板弹窗二次确认后，才会通过 Scrapfly 浏览器自动化发送评论。
 
 ## 安装
 
@@ -14,11 +14,11 @@ PowerShell 示例：
 
 ```powershell
 $env:SCRAPFLY_KEY="你的 Scrapfly API Key"
-$env:WEIBO_COOKIES="SUB=_2A25...第一个账号...;"
-$env:DRY_RUN_REPLIES="true"
+$env:WEIBO_COOKIES="SUB=_2A25...第一个账号...;||SUB=_2A25...第二个账号...;"
+$env:ENABLE_REAL_REPLIES="false"
 ```
 
-`WEIBO_COOKIES` 可以用 `||` 分隔多个 Cookie。1 个 Cookie 可以小范围测试，长期使用建议至少 2 个账号轮换。不要把真实 Cookie 写入仓库文件。
+`WEIBO_COOKIES` 用 `||` 分隔多个 Cookie。1 个 Cookie 可以小范围测试，长期使用建议至少 2 个账号轮换。不要把真实 Cookie 写入仓库文件。
 
 也可以运行本地录入脚本：
 
@@ -36,11 +36,12 @@ python -m weibo_bot.dashboard
 
 ## 当前状态
 
-- `开始采集`：需要 `SCRAPFLY_KEY` 和 `WEIBO_COOKIES`。
-- `发送评论`：先勾选线索，再选择话术。默认只写入数据库，状态变为 `已预演`。
+- `开始采集`：需要 `SCRAPFLY_KEY` 和 `WEIBO_COOKIES`；采集脚本会跳过超过 90 天的帖子。
+- `发送评论`：先勾选线索，再选择话术。真实发送未开启时只记录预演，真实发送开启并二次确认后才会调用 Scrapfly `js_scenario`。
 - `保存话术`：在话术弹窗里输入新话术并保存，下次重启仍可使用。
 - `重试`：把失败记录重置为 `待处理`。
 - `导出 CSV`：把 `weibo.db` 里的线索下载为 `weibo_leads.csv`。
+- `手动关键词`：如果不包含美业白名单词，面板会提示确认，避免误耗 Credits。
 
 默认测试采集模式：
 
@@ -63,7 +64,7 @@ ENABLE_REAL_REPLIES="true"
 
 2. 在面板话术弹窗里勾选“我确认真实发送评论”。
 
-缺少任意一步都会按预演处理，只记录话术，不发微博。
+缺少任意一步都会按预演处理，只记录话术，不发微博。真实发送路线使用计划书 V5.0 的 Scrapfly `render_js=True` + `js_scenario` 方案。
 
 ## 自定义话术
 
