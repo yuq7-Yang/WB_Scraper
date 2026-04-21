@@ -147,7 +147,8 @@ def test_send_real_reply_uses_scrapfly_js_scenario(monkeypatch):
     assert calls[0]["url"] == "https://m.weibo.cn/detail/1001"
     assert calls[0]["headers"]["Cookie"] == "cookie"
     assert calls[0]["render_js"] is True
-    assert calls[0]["js_scenario"]
+    assert isinstance(calls[0]["js_scenario"], list)
+    assert calls[0]["js_scenario"][4]["fill"]["value"] == "hello"
 
 
 def test_api_scrape_accepts_selected_keywords_and_limits(monkeypatch):

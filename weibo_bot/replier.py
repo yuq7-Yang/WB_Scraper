@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import base64
-import json
 import time
 from typing import Callable
 
@@ -44,12 +42,6 @@ def _make_scenario(reply_text: str) -> list[dict]:
     ]
 
 
-def _make_scenario_payload(reply_text: str) -> str:
-    return base64.b64encode(
-        json.dumps(_make_scenario(reply_text), ensure_ascii=False).encode("utf-8")
-    ).decode("ascii")
-
-
 def _configured_cookies() -> list[str]:
     if COOKIES is not _config.COOKIES:
         return list(COOKIES)
@@ -87,7 +79,7 @@ def _send_real_reply(lead: dict, reply_text: str, cookie_index: int = 0) -> tupl
             render_js=True,
             session=f"weibo-reply-{cookie_index}",
             session_sticky_proxy=True,
-            js_scenario=_make_scenario_payload(reply_text),
+            js_scenario=_make_scenario(reply_text),
         )
     )
     return True, reply_text
