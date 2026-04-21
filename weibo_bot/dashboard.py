@@ -572,7 +572,7 @@ def api_scrape():
             )
             event_queue.put(
                 {
-                    "log": f"采集完成，共找到 {count} 位华东用户",
+                    "log": f"采集完成，共找到 {count} 位意向用户",
                     "progress": 100,
                     "refresh": True,
                 }

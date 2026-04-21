@@ -107,7 +107,7 @@ def test_run_scrape_requires_credentials(monkeypatch):
         scraper.run_scrape()
 
 
-def test_run_scrape_limits_east_china_comments_per_keyword(tmp_path, monkeypatch):
+def test_run_scrape_accepts_intent_comments_from_any_region(tmp_path, monkeypatch):
     db.configure(str(tmp_path / "weibo.db"))
     monkeypatch.setattr(scraper, "SCRAPFLY_KEY", "key")
     monkeypatch.setattr(scraper, "COOKIES", ["cookie"])
@@ -120,7 +120,7 @@ def test_run_scrape_limits_east_china_comments_per_keyword(tmp_path, monkeypatch
         "fetch_comments",
         lambda *args, **kwargs: [
             {"source": "来自上海", "user": {"screen_name": "alice"}, "text": "想做美甲"},
-            {"source": "来自浙江", "user": {"screen_name": "bob"}, "text": "求推荐"},
+            {"source": "来自广东", "user": {"screen_name": "bob"}, "text": "求推荐"},
             {"source": "来自江苏", "user": {"screen_name": "cathy"}, "text": "看款式"},
         ],
     )
@@ -130,7 +130,8 @@ def test_run_scrape_limits_east_china_comments_per_keyword(tmp_path, monkeypatch
     assert count == 2
     leads = db.get_all_leads()
     assert len(leads) == 2
-    assert [lead["user_name"] for lead in leads] == ["bob", "alice"]
+    assert {lead["user_name"] for lead in leads} == {"alice", "bob"}
+    assert any(lead["location"] == "来自广东" for lead in leads)
 
 
 def test_run_scrape_skips_comments_without_intent(tmp_path, monkeypatch):

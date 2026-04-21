@@ -175,7 +175,7 @@ def run_scrape(
                     break
                 source = comment.get("source", "")
                 text = comment.get("text", "")
-                if is_east_china(source) and has_intent(text):
+                if has_intent(text):
                     inserted = insert_lead(
                         user_name=comment.get("user", {}).get("screen_name", ""),
                         location=source,
@@ -194,4 +194,4 @@ def run_scrape(
 
 if __name__ == "__main__":
     count = run_scrape(lambda **kw: print(f"[{kw['step']}/{kw['total']}] {kw['keyword']}"))
-    print(f"采集完成，共找到 {count} 位华东用户")
+    print(f"采集完成，共找到 {count} 位意向用户")
