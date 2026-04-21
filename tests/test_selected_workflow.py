@@ -205,7 +205,7 @@ def test_dashboard_includes_updated_controls_and_safety_copy():
     assert 'id="kwExtra"' in html
     assert 'id="maxPerKw"' in html
     assert 'id="maxTotal"' in html
-    assert "全选待回复" in html
+    assert "全选可发送" in html
     assert "发送评论" in html
     assert 'id="modalMask"' in html
     assert 'id="confirmRealSend"' in html

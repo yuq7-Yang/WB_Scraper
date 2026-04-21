@@ -158,7 +158,7 @@ HTML = """
   </section>
 
   <section class="box row">
-    <button class="outline" onclick="selectAllPending()">全选待回复</button>
+    <button class="outline" onclick="selectAllPending()">全选可发送</button>
     <button class="outline" onclick="clearSelection()">清空勾选</button>
     <span id="selCount">已勾选 0 人</span>
     <button class="send" onclick="openModal([])">发送评论</button>
@@ -277,6 +277,14 @@ function isBeautyKeyword(keyword) {
   return BEAUTY_TERMS.some(term => keyword.includes(term));
 }
 
+function canSelectForReply(status) {
+  return ["pending", "reviewed", "failed"].includes(status);
+}
+
+function canRetry(status) {
+  return ["reviewed", "failed"].includes(status);
+}
+
 function startScrape() {
   const keywords = getSelectedKeywords();
   if (!keywords.length) {
@@ -329,7 +337,7 @@ function refreshTable() {
     tbody.replaceChildren();
     data.forEach(row => {
       const tr = document.createElement("tr");
-      tr.appendChild(row.status === "pending" ? rowCheck(row.id) : cell(""));
+      tr.appendChild(canSelectForReply(row.status) ? rowCheck(row.id) : cell(""));
       tr.appendChild(cell(row.user_name));
       tr.appendChild(cell(row.location));
       tr.appendChild(cell(row.comment_text, "comment"));
@@ -346,7 +354,7 @@ function refreshTable() {
         send.addEventListener("click", () => openModal([row.id]));
         action.appendChild(send);
       }
-      if (row.status === "failed") {
+      if (canRetry(row.status)) {
         const retry = document.createElement("button");
         retry.className = "danger";
         retry.textContent = "重试";
