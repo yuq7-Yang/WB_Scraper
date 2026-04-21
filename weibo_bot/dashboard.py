@@ -109,6 +109,10 @@ HTML = """
   .tpl-list { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; }
   .tpl-item { border: 2px solid #e5e7eb; border-radius: 8px; cursor: pointer; line-height: 1.5; padding: 10px; }
   .tpl-item.selected { border-color: var(--accent); background: #fff0f6; }
+  .auto-match { background: #fff0f6; border: 1px solid #f48fb1; border-radius: 8px; margin-bottom: 12px; padding: 10px 12px; }
+  .auto-match label { align-items: center; color: #c0386b; cursor: pointer; display: flex; font-weight: 700; gap: 8px; margin: 0; }
+  .auto-match input { accent-color: #c0386b; cursor: pointer; height: 16px; width: 16px; }
+  .auto-match p { color: #667085; font-size: 12px; margin: 5px 0 0 24px; }
   .tpl-add { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 12px; }
   .tpl-add textarea { border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; min-height: 76px; padding: 8px; resize: vertical; width: 100%; }
   .real-send-confirm { align-items: center; display: flex; gap: 8px; margin-bottom: 14px; }
@@ -183,7 +187,14 @@ HTML = """
 <div class="modal-mask" id="modalMask">
   <div class="modal">
     <h2 id="modalTitle">选择话术</h2>
-    <div class="tpl-list" id="tplList"></div>
+    <div class="auto-match">
+      <label>
+        <input type="checkbox" id="autoMatchToggle" checked onchange="handleAutoMatchToggle(this.checked)">
+        根据采集关键词自动匹配话术
+      </label>
+      <p>每条评论按采集关键词选话术，结尾统一引导私信获取门票</p>
+    </div>
+    <div class="tpl-list" id="templateListWrap"></div>
     <div class="tpl-add">
       <label for="newTemplateText">新增话术</label>
       <textarea id="newTemplateText" placeholder="输入一条新的回复话术"></textarea>
@@ -356,7 +367,7 @@ function getCheckedIds() { return [...document.querySelectorAll(".row-check:chec
 function updateSelCount() { document.getElementById("selCount").textContent = `已勾选 ${getCheckedIds().length} 人`; }
 
 function renderTemplates() {
-  const list = document.getElementById("tplList");
+  const list = document.getElementById("templateListWrap");
   list.replaceChildren();
   TEMPLATES.forEach((template, index) => {
     const label = document.createElement("label");
@@ -388,6 +399,8 @@ function openModal(ids) {
   document.getElementById("newTemplateText").value = "";
   document.getElementById("templateSaveMsg").textContent = "";
   document.getElementById("confirmRealSend").checked = false;
+  document.getElementById("autoMatchToggle").checked = true;
+  handleAutoMatchToggle(true);
   document.getElementById("modalMask").classList.add("show");
 }
 
@@ -423,6 +436,8 @@ function saveTemplate() {
 
 function confirmSend() {
   const selected = document.querySelector("input[name=tpl]:checked");
+  const autoMatchToggle = document.getElementById("autoMatchToggle");
+  const autoMatch = Boolean(autoMatchToggle && autoMatchToggle.checked);
   if (!selected) {
     alert("请选择一条话术");
     return;
@@ -439,9 +454,17 @@ function confirmSend() {
     body: JSON.stringify({
       lead_ids: pendingIds,
       reply_text: TEMPLATES[parseInt(selected.value)],
-      confirm_real_send: confirmRealSend
+      confirm_real_send: confirmRealSend,
+      auto_match: autoMatch
     })
   }).then(() => refreshTable());
+}
+
+function handleAutoMatchToggle(checked) {
+  const wrap = document.getElementById("templateListWrap");
+  if (!wrap) return;
+  wrap.style.opacity = checked ? "0.35" : "1";
+  wrap.style.pointerEvents = checked ? "none" : "auto";
 }
 
 function retryLead(id) { fetch(`/api/retry/${id}`, {method: "POST"}).then(() => refreshTable()); }
@@ -455,6 +478,7 @@ stream.onmessage = event => {
 };
 
 buildKwGrid();
+handleAutoMatchToggle(true);
 refreshTable();
 setInterval(refreshTable, 10000);
 </script>
@@ -559,6 +583,7 @@ def api_reply():
     templates = template_store.load_templates()
     reply_text = body.get("reply_text") or (templates[0] if templates else "")
     confirm_real_send = bool(body.get("confirm_real_send", False))
+    auto_match = bool(body.get("auto_match", False))
 
     def task() -> None:
         def progress(lead: dict, ok: bool, current: int, total: int, info: str) -> None:
@@ -576,6 +601,7 @@ def api_reply():
             lead_ids=lead_ids,
             reply_text=reply_text,
             confirm_real_send=confirm_real_send,
+            auto_match=auto_match,
             progress_callback=progress,
         )
         event_queue.put({"log": f"发送任务完成，处理 {count} 条", "progress": 100, "refresh": True})

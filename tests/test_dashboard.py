@@ -1,6 +1,14 @@
 from weibo_bot import dashboard, db
 
 
+class ImmediateThread:
+    def __init__(self, target, daemon=False):
+        self.target = target
+
+    def start(self):
+        self.target()
+
+
 def test_api_leads_returns_inserted_rows(tmp_path):
     db.configure(str(tmp_path / "weibo.db"))
     db.init_db()
@@ -55,3 +63,51 @@ def test_dashboard_includes_post_link_column():
     assert "帖子链接" in html
     assert "https://m.weibo.cn/detail/" in html
     assert "查看帖子" in html
+
+
+# -- /api/reply auto_match 透传 ---------------------------------------------
+class TestApiReplyAutoMatch:
+    def test_auto_match_true_is_passed_to_run_reply(self, monkeypatch):
+        captured = {}
+
+        def fake_run_reply(**kwargs):
+            captured.update(kwargs)
+            return 1
+
+        monkeypatch.setattr(dashboard.threading, "Thread", ImmediateThread)
+        monkeypatch.setattr(dashboard, "run_reply", fake_run_reply)
+        client = dashboard.app.test_client()
+
+        response = client.post(
+            "/api/reply",
+            json={
+                "lead_ids": [1],
+                "reply_text": "",
+                "auto_match": True,
+            },
+        )
+
+        assert response.status_code == 200
+        assert captured.get("auto_match") is True
+
+    def test_auto_match_defaults_false(self, monkeypatch):
+        captured = {}
+
+        def fake_run_reply(**kwargs):
+            captured.update(kwargs)
+            return 1
+
+        monkeypatch.setattr(dashboard.threading, "Thread", ImmediateThread)
+        monkeypatch.setattr(dashboard, "run_reply", fake_run_reply)
+        client = dashboard.app.test_client()
+
+        response = client.post(
+            "/api/reply",
+            json={
+                "lead_ids": [1],
+                "reply_text": "手动话术",
+            },
+        )
+
+        assert response.status_code == 200
+        assert captured.get("auto_match") is False

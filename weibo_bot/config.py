@@ -46,7 +46,8 @@ load_env_file()
 
 DB_PATH = os.getenv("WEIBO_DB_PATH", "weibo.db")
 SCRAPFLY_KEY = os.getenv("SCRAPFLY_KEY", "").strip()
-COOKIES = _split_cookies(os.getenv("WEIBO_COOKIES", ""))
+WEIBO_COOKIES = os.getenv("WEIBO_COOKIES", "")
+COOKIES = _split_cookies(WEIBO_COOKIES)
 
 KEYWORDS = [
     "美甲款式",
@@ -152,3 +153,149 @@ DEFAULT_MAX_PER_KEYWORD = int(os.getenv("DEFAULT_MAX_PER_KEYWORD", str(MAX_COMME
 DEFAULT_MAX_TOTAL = int(os.getenv("DEFAULT_MAX_TOTAL", "20"))
 DRY_RUN_REPLIES = _env_bool("DRY_RUN_REPLIES", True)
 ENABLE_REAL_REPLIES = _env_bool("ENABLE_REAL_REPLIES", False)
+
+
+KEYWORD_REPLY_MAP = [
+    {
+        "id": "nail_franchise",
+        "keywords": ["美甲店加盟", "美甲加盟", "美甲品牌加盟"],
+        "template": (
+            "CIBE今年美甲连锁品牌到场不少，加盟政策和选址支持可以现场直接谈，"
+            "比自己找渠道效率高很多。有需要的话私信我获取门票。"
+        ),
+    },
+    {
+        "id": "nail_learn",
+        "keywords": ["美甲培训", "学美甲", "美甲技术", "美甲课程", "美甲学习"],
+        "template": (
+            "CIBE美甲板块今年有不少实力派培训机构和大咖老师到场，"
+            "现场还设有技术教学公开课可以免费参加。有需要的话私信我获取门票。"
+        ),
+    },
+    {
+        "id": "lash_learn",
+        "keywords": ["美睫培训", "学美睫", "美睫技术", "美睫课程", "美睫学习"],
+        "template": (
+            "CIBE美睫区有头部品牌的技术演示和培训招生，"
+            "手法、材料可以现场看到实物。有需要的话私信我获取门票。"
+        ),
+    },
+    {
+        "id": "tattoo_learn",
+        "keywords": ["纹绣培训", "学纹绣", "纹眉培训", "纹绣技术", "纹绣课程"],
+        "template": (
+            "CIBE纹绣板块今年规模不小，纹眉、纹眼线、唇妆都有专项培训机构，"
+            "现场谈比网上找省事很多。有需要的话私信我获取门票。"
+        ),
+    },
+    {
+        "id": "semi_learn",
+        "keywords": ["半永久培训", "学半永久", "半永久技术", "半永久课程"],
+        "template": (
+            "CIBE有专门的半永久板块，品牌方和培训机构都在，"
+            "色料、工具和技术可以一次摸清。有需要的话私信我获取门票。"
+        ),
+    },
+    {
+        "id": "skincare_learn",
+        "keywords": ["美容培训", "皮肤管理培训", "学美容", "护肤培训", "美容技术"],
+        "template": (
+            "CIBE皮肤管理和美容板块今年引进了不少新项目，"
+            "适合想拓项或转型的从业者去看。有需要的话私信我获取门票。"
+        ),
+    },
+    {
+        "id": "pressnail",
+        "keywords": ["穿戴甲", "可穿戴甲", "穿戴式美甲"],
+        "template": (
+            "CIBE今年穿戴甲品牌挺多，款式、材质、定制方案都能现场看到，"
+            "做零售或工作室选品的话值得去转转。有需要的话私信我获取门票。"
+        ),
+    },
+    {
+        "id": "supply",
+        "keywords": ["进货", "拿货", "采购", "批发", "供应商", "原材料"],
+        "template": (
+            "CIBE聚集了几百家美业供应商，现场对接比找中间商直接，"
+            "价格也更好谈。有需要的话私信我获取门票。"
+        ),
+    },
+    {
+        "id": "open_shop",
+        "keywords": ["开店", "加盟", "创业", "开工作室", "开美甲店", "开美睫店"],
+        "template": (
+            "CIBE有专门的品牌加盟区，适合在考察阶段的人，"
+            "可以一次性见到很多品牌方。有需要的话私信我获取门票。"
+        ),
+    },
+    {
+        "id": "nail",
+        "keywords": [
+            "美甲",
+            "甲油胶",
+            "光疗甲",
+            "延长甲",
+            "美甲产品",
+            "饰品",
+            "甲片",
+            "工具设备",
+        ],
+        "template": (
+            "CIBE美甲区今年品牌比较全，甲油胶、甲片、饰品、工具设备各类产品都有，"
+            "新品基本都在现场。有需要的话私信我获取门票。"
+        ),
+    },
+    {
+        "id": "lash",
+        "keywords": ["美睫", "嫁接睫毛", "睫毛嫁接", "睫毛材料"],
+        "template": (
+            "CIBE美睫区有主流品牌的新款嫁接材料和工具，"
+            "最新款式设计也都在现场，可以直接试用对比。有需要的话私信我获取门票。"
+        ),
+    },
+    {
+        "id": "tattoo",
+        "keywords": ["纹绣", "半永久", "纹眉", "飘眉", "雾眉", "纹眼线", "纹唇"],
+        "template": (
+            "CIBE纹绣板块今年色料和器械品牌都有，"
+            "行业里比较主流的几家基本都到场。有需要的话私信我获取门票。"
+        ),
+    },
+    {
+        "id": "skincare",
+        "keywords": ["皮肤管理", "护肤", "美容仪器", "皮肤护理", "面部护理"],
+        "template": (
+            "CIBE皮肤管理区有不少仪器和护肤品牌，"
+            "适合想了解市场或选新项目的从业者。有需要的话私信我获取门票。"
+        ),
+    },
+    {
+        "id": "learn",
+        "keywords": ["培训", "报班", "技术学习", "学技术"],
+        "template": (
+            "CIBE今年有不少头部培训机构到场，现场可以直接和负责人谈，"
+            "比线上渠道透明很多。有需要的话私信我获取门票。"
+        ),
+    },
+    {
+        "id": "default",
+        "keywords": [],
+        "template": (
+            "CIBE是美业比较集中的展会，资源、品牌、培训都有，"
+            "看你具体需要什么。有需要的话私信我获取门票。"
+        ),
+    },
+]
+
+
+def get_template_by_keyword(keyword: str) -> str:
+    kw = (keyword or "").strip()
+    default = next(group["template"] for group in KEYWORD_REPLY_MAP if group["id"] == "default")
+    if not kw:
+        return default
+
+    for group in KEYWORD_REPLY_MAP:
+        for target in group["keywords"]:
+            if target in kw or kw in target:
+                return group["template"]
+    return default

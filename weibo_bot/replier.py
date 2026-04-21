@@ -7,6 +7,7 @@ from typing import Callable
 
 from scrapfly import ScrapeConfig, ScrapflyClient
 
+from . import config as _config
 from .config import (
     COOKIES,
     ENABLE_REAL_REPLIES,
@@ -19,6 +20,8 @@ from .db import get_leads_by_ids, get_pending_leads, update_lead_status
 from .template_store import load_templates
 
 REPLY_TEMPLATES = CONFIG_REPLY_TEMPLATES
+REPLIES_PER_ACCOUNT = 3
+ACCOUNT_SWITCH_DELAY = 5
 
 
 def choose_reply_template() -> str:
@@ -47,10 +50,27 @@ def _make_scenario_payload(reply_text: str) -> str:
     ).decode("ascii")
 
 
+def _configured_cookies() -> list[str]:
+    if COOKIES is not _config.COOKIES:
+        return list(COOKIES)
+    raw_cookies = getattr(_config, "WEIBO_COOKIES", "")
+    if raw_cookies:
+        return _config._split_cookies(raw_cookies)
+    return list(COOKIES)
+
+
+def _get_cookie_for_index(index: int) -> int:
+    cookies = _configured_cookies()
+    if not cookies:
+        return 0
+    return index % len(cookies)
+
+
 def _send_real_reply(lead: dict, reply_text: str, cookie_index: int = 0) -> tuple[bool, str]:
     if not SCRAPFLY_KEY:
         raise RuntimeError("SCRAPFLY_KEY is not configured")
-    if not COOKIES:
+    cookies = _configured_cookies()
+    if not cookies:
         raise RuntimeError("WEIBO_COOKIES is not configured")
 
     client = ScrapflyClient(key=SCRAPFLY_KEY)
@@ -59,7 +79,7 @@ def _send_real_reply(lead: dict, reply_text: str, cookie_index: int = 0) -> tupl
             url=f"https://m.weibo.cn/detail/{lead['post_id']}",
             headers={
                 "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15",
-                "Cookie": COOKIES[cookie_index % len(COOKIES)],
+                "Cookie": cookies[cookie_index % len(cookies)],
             },
             asp=True,
             proxy_pool="public_residential_pool",
@@ -96,24 +116,33 @@ def run_reply(
     lead_ids: list[int] | None = None,
     reply_text: str | None = None,
     confirm_real_send: bool = False,
+    auto_match: bool = False,
 ) -> int:
     if lead_ids is None:
         leads = get_pending_leads(limit=limit)
     else:
         leads = get_leads_by_ids([int(lead_id) for lead_id in lead_ids])
 
-    selected_text = reply_text or choose_reply_template()
+    selected_text = reply_text or ("" if auto_match else choose_reply_template())
     if dry_run is True:
         confirm_real_send = False
 
     replied = 0
     for index, lead in enumerate(leads):
+        if auto_match:
+            selected_text_for_lead = _config.get_template_by_keyword(lead.get("keyword") or "")
+        else:
+            selected_text_for_lead = selected_text
+        cookie_index = _get_cookie_for_index(index // REPLIES_PER_ACCOUNT)
+        if index > 0 and index % REPLIES_PER_ACCOUNT == 0:
+            time.sleep(ACCOUNT_SWITCH_DELAY)
+
         try:
             ok, info = reply_to_lead(
                 lead,
-                reply_text=selected_text,
+                reply_text=selected_text_for_lead,
                 confirm_real_send=confirm_real_send,
-                cookie_index=index,
+                cookie_index=cookie_index,
             )
         except Exception as exc:
             ok = False
