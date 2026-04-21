@@ -58,6 +58,30 @@ def _get_cookie_for_index(index: int) -> int:
     return index % len(cookies)
 
 
+def _validate_scrapfly_scenario(response) -> tuple[bool, str]:
+    if not getattr(response, "scrape_success", False):
+        error = getattr(response, "error", None) or {}
+        message = error.get("message") if isinstance(error, dict) else None
+        return False, message or "Scrapfly scrape failed"
+
+    result = getattr(response, "scrape_result", None) or {}
+    scenario = (result.get("browser_data") or {}).get("js_scenario")
+    if not scenario:
+        return False, "Scrapfly did not return js_scenario execution details"
+
+    failed_steps = []
+    for step in scenario.get("steps") or []:
+        if step.get("success") is False or step.get("executed") is False:
+            action = step.get("action", "unknown")
+            detail = step.get("error") or step.get("result") or "not executed"
+            failed_steps.append(f"{action}: {detail}")
+
+    if failed_steps:
+        return False, "Scrapfly js_scenario failed: " + "; ".join(failed_steps)
+
+    return True, "Scrapfly js_scenario completed"
+
+
 def _send_real_reply(lead: dict, reply_text: str, cookie_index: int = 0) -> tuple[bool, str]:
     if not SCRAPFLY_KEY:
         raise RuntimeError("SCRAPFLY_KEY is not configured")
@@ -66,7 +90,7 @@ def _send_real_reply(lead: dict, reply_text: str, cookie_index: int = 0) -> tupl
         raise RuntimeError("WEIBO_COOKIES is not configured")
 
     client = ScrapflyClient(key=SCRAPFLY_KEY)
-    client.scrape(
+    response = client.scrape(
         ScrapeConfig(
             url=f"https://m.weibo.cn/detail/{lead['post_id']}",
             headers={
@@ -82,6 +106,9 @@ def _send_real_reply(lead: dict, reply_text: str, cookie_index: int = 0) -> tupl
             js_scenario=_make_scenario(reply_text),
         )
     )
+    ok, info = _validate_scrapfly_scenario(response)
+    if not ok:
+        return False, info
     return True, reply_text
 
 
@@ -95,6 +122,8 @@ def reply_to_lead(
         ok, info = _send_real_reply(lead, reply_text, cookie_index=cookie_index)
         if ok:
             update_lead_status(lead["id"], "replied", reply_text)
+        else:
+            update_lead_status(lead["id"], "failed", info)
         return ok, info
 
     update_lead_status(lead["id"], "reviewed", reply_text)
