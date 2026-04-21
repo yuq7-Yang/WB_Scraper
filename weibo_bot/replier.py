@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from uuid import uuid4
 from typing import Callable
 
 from scrapfly import ScrapeConfig, ScrapflyClient
@@ -58,6 +59,12 @@ def _get_cookie_for_index(index: int) -> int:
     return index % len(cookies)
 
 
+def _make_reply_session(lead: dict, cookie_index: int) -> str:
+    lead_id = lead.get("id") or lead.get("comment_id") or lead.get("post_id") or "unknown"
+    safe_lead_id = "".join(ch if ch.isalnum() else "-" for ch in str(lead_id))[:40]
+    return f"weibo-reply-{cookie_index}-{safe_lead_id}-{uuid4().hex[:12]}"
+
+
 def _validate_scrapfly_scenario(response) -> tuple[bool, str]:
     if not getattr(response, "scrape_success", False):
         error = getattr(response, "error", None) or {}
@@ -101,7 +108,7 @@ def _send_real_reply(lead: dict, reply_text: str, cookie_index: int = 0) -> tupl
             proxy_pool="public_residential_pool",
             country="cn,hk",
             render_js=True,
-            session=f"weibo-reply-{cookie_index}",
+            session=_make_reply_session(lead, cookie_index),
             session_sticky_proxy=True,
             js_scenario=_make_scenario(reply_text),
         )

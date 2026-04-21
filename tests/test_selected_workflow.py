@@ -216,6 +216,45 @@ def test_real_reply_marks_failed_when_scrapfly_scenario_step_fails(tmp_path, mon
     assert "click" in lead["reply_text"]
 
 
+def test_real_reply_uses_unique_scrapfly_session_per_attempt(monkeypatch):
+    calls = []
+
+    class FakeResponse:
+        scrape_success = True
+        scrape_result = {
+            "browser_data": {
+                "js_scenario": {
+                    "steps": [{"action": "click", "success": True, "executed": True}]
+                }
+            }
+        }
+
+    class FakeClient:
+        def __init__(self, key):
+            self.key = key
+
+        def scrape(self, config):
+            calls.append(config)
+            return FakeResponse()
+
+    class FakeScrapeConfig(dict):
+        def __init__(self, **kwargs):
+            super().__init__(kwargs)
+
+    monkeypatch.setattr(replier, "SCRAPFLY_KEY", "key", raising=False)
+    monkeypatch.setattr(replier, "COOKIES", ["cookie"], raising=False)
+    monkeypatch.setattr(replier, "ScrapflyClient", FakeClient, raising=False)
+    monkeypatch.setattr(replier, "ScrapeConfig", FakeScrapeConfig, raising=False)
+
+    replier._send_real_reply({"id": 10, "post_id": "1001"}, "hello", cookie_index=0)
+    replier._send_real_reply({"id": 10, "post_id": "1001"}, "hello", cookie_index=0)
+
+    sessions = [call["session"] for call in calls]
+    assert sessions[0].startswith("weibo-reply-0-10-")
+    assert sessions[1].startswith("weibo-reply-0-10-")
+    assert sessions[0] != sessions[1]
+
+
 def test_api_scrape_accepts_selected_keywords_and_limits(monkeypatch):
     calls = []
     monkeypatch.setattr(dashboard.threading, "Thread", ImmediateThread)
