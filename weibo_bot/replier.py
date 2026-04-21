@@ -22,6 +22,28 @@ from .template_store import load_templates
 REPLY_TEMPLATES = CONFIG_REPLY_TEMPLATES
 REPLIES_PER_ACCOUNT = 3
 ACCOUNT_SWITCH_DELAY = 5
+COMMENT_TRIGGER_SELECTOR = (
+    ".lite-detail-page_reply, "
+    "button[class*='reply'], "
+    "a[class*='reply'], "
+    "[role='button'][class*='reply'], "
+    "button[class*='comment'], "
+    "a[class*='comment'], "
+    "[role='button'][class*='comment']"
+)
+COMMENT_EDITOR_SELECTOR = (
+    "textarea.comment-send_textarea, "
+    "textarea, "
+    "input[type='text'], "
+    "[contenteditable='true'], "
+    "[contenteditable=true]"
+)
+COMMENT_SEND_SELECTOR = (
+    "button.comment-send_btn, "
+    ".comment-send_btn, "
+    "button[type='submit'], "
+    "[class*='send']"
+)
 
 
 def choose_reply_template() -> str:
@@ -33,14 +55,31 @@ def choose_reply_template() -> str:
 
 def _make_scenario(reply_text: str) -> list[dict]:
     reply_literal = json.dumps(reply_text, ensure_ascii=False)
+    editor_selector_literal = json.dumps(COMMENT_EDITOR_SELECTOR)
     return [
         {"scroll": {"element": "body", "selector": "bottom"}},
         {"wait": 1500},
-        {"click": {"selector": ".lite-detail-page_reply", "ignore_if_not_visible": True}},
-        {"wait": 800},
-        {"fill": {"selector": "textarea.comment-send_textarea", "value": reply_text}},
+        {"click": {"selector": COMMENT_TRIGGER_SELECTOR}},
+        {"wait": 1200},
+        {
+            "execute": {
+                "script": (
+                    f"const editorSelector = {editor_selector_literal};"
+                    "const editor = document.querySelector(editorSelector);"
+                    "const body = document.body ? document.body.innerText : '';"
+                    "return {"
+                    "comment_editor_visible: !!(editor && editor.offsetParent !== null),"
+                    "active_tag: document.activeElement ? document.activeElement.tagName : null,"
+                    "body_sample: body.slice(0, 500)"
+                    "};"
+                ),
+                "timeout": 1000,
+            }
+        },
+        {"wait_for_selector": {"selector": COMMENT_EDITOR_SELECTOR, "state": "visible", "timeout": 5000}},
+        {"fill": {"selector": COMMENT_EDITOR_SELECTOR, "value": reply_text, "clear": True}},
         {"wait": 500},
-        {"click": {"selector": "button.comment-send_btn"}},
+        {"click": {"selector": COMMENT_SEND_SELECTOR}},
         {"wait": 3000},
         {
             "execute": {
@@ -97,6 +136,8 @@ def _validate_scrapfly_scenario(response) -> tuple[bool, str]:
             failed_steps.append(f"{action}: {detail}")
         if step.get("action") == "execute" and isinstance(step.get("result"), dict):
             result = step["result"]
+            if result.get("comment_editor_visible") is False:
+                return False, "comment editor not visible after opening reply"
             if "reply_visible" in result:
                 verification_seen = True
                 if result.get("reply_visible") is not True:

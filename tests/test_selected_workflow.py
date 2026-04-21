@@ -118,7 +118,11 @@ def test_make_scenario_returns_scrapfly_list():
 
     assert isinstance(scenario, list)
     assert scenario[0]["scroll"]["element"] == "body"
-    assert scenario[4]["fill"]["value"] == "hello"
+    assert scenario[4]["execute"]["script"]
+    assert scenario[5]["wait_for_selector"]["selector"] == replier.COMMENT_EDITOR_SELECTOR
+    assert scenario[6]["fill"]["selector"] == replier.COMMENT_EDITOR_SELECTOR
+    assert scenario[6]["fill"]["value"] == "hello"
+    assert scenario[8]["click"]["selector"] == replier.COMMENT_SEND_SELECTOR
 
 
 def test_send_real_reply_uses_scrapfly_js_scenario(monkeypatch):
@@ -171,7 +175,33 @@ def test_send_real_reply_uses_scrapfly_js_scenario(monkeypatch):
     assert calls[0]["correlation_id"] == calls[0]["session"]
     assert calls[0]["tags"] == ["weibo-reply", "lead:10", "account:0"]
     assert isinstance(calls[0]["js_scenario"], list)
-    assert calls[0]["js_scenario"][4]["fill"]["value"] == "hello"
+    assert calls[0]["js_scenario"][6]["fill"]["value"] == "hello"
+
+
+def test_validate_reports_missing_comment_editor_before_fill_not_executed():
+    class FakeResponse:
+        scrape_success = True
+        scrape_result = {
+            "browser_data": {
+                "js_scenario": {
+                    "steps": [
+                        {
+                            "action": "execute",
+                            "success": True,
+                            "executed": True,
+                            "result": {"comment_editor_visible": False},
+                        },
+                        {"action": "fill", "success": False, "executed": False},
+                        {"action": "wait", "success": False, "executed": False},
+                    ],
+                }
+            }
+        }
+
+    ok, info = replier._validate_scrapfly_scenario(FakeResponse())
+
+    assert ok is False
+    assert "comment editor not visible" in info
 
 
 def test_real_reply_marks_failed_when_scrapfly_scenario_step_fails(tmp_path, monkeypatch):
