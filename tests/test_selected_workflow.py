@@ -160,13 +160,16 @@ def test_send_real_reply_uses_scrapfly_js_scenario(monkeypatch):
     monkeypatch.setattr(replier, "ScrapflyClient", FakeClient, raising=False)
     monkeypatch.setattr(replier, "ScrapeConfig", FakeScrapeConfig, raising=False)
 
-    ok, info = replier._send_real_reply({"post_id": "1001"}, "hello", cookie_index=0)
+    ok, info = replier._send_real_reply({"id": 10, "post_id": "1001"}, "hello", cookie_index=0)
 
     assert ok is True
     assert info == "hello"
     assert calls[0]["url"] == "https://m.weibo.cn/detail/1001"
     assert calls[0]["headers"]["Cookie"] == "cookie"
     assert calls[0]["render_js"] is True
+    assert calls[0]["debug"] is True
+    assert calls[0]["correlation_id"] == calls[0]["session"]
+    assert calls[0]["tags"] == ["weibo-reply", "lead:10", "account:0"]
     assert isinstance(calls[0]["js_scenario"], list)
     assert calls[0]["js_scenario"][4]["fill"]["value"] == "hello"
 

@@ -118,6 +118,7 @@ def _send_real_reply(lead: dict, reply_text: str, cookie_index: int = 0) -> tupl
     if not cookies:
         raise RuntimeError("WEIBO_COOKIES is not configured")
 
+    session_name = _make_reply_session(lead, cookie_index)
     client = ScrapflyClient(key=SCRAPFLY_KEY)
     response = client.scrape(
         ScrapeConfig(
@@ -130,8 +131,11 @@ def _send_real_reply(lead: dict, reply_text: str, cookie_index: int = 0) -> tupl
             proxy_pool="public_residential_pool",
             country="cn,hk",
             render_js=True,
-            session=_make_reply_session(lead, cookie_index),
+            session=session_name,
             session_sticky_proxy=True,
+            correlation_id=session_name,
+            tags=["weibo-reply", f"lead:{lead.get('id', 'unknown')}", f"account:{cookie_index}"],
+            debug=True,
             js_scenario=_make_scenario(reply_text),
         )
     )
