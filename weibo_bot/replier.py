@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 from uuid import uuid4
 from typing import Callable
@@ -31,6 +32,7 @@ def choose_reply_template() -> str:
 
 
 def _make_scenario(reply_text: str) -> list[dict]:
+    reply_literal = json.dumps(reply_text, ensure_ascii=False)
     return [
         {"scroll": {"element": "body", "selector": "bottom"}},
         {"wait": 1500},
@@ -39,7 +41,17 @@ def _make_scenario(reply_text: str) -> list[dict]:
         {"fill": {"selector": "textarea.comment-send_textarea", "value": reply_text}},
         {"wait": 500},
         {"click": {"selector": "button.comment-send_btn"}},
-        {"wait": 1200},
+        {"wait": 3000},
+        {
+            "execute": {
+                "script": (
+                    f"const target = {reply_literal};"
+                    "const body = document.body ? document.body.innerText : '';"
+                    "return {reply_visible: body.includes(target), body_sample: body.slice(0, 500)};"
+                ),
+                "timeout": 1000,
+            }
+        },
     ]
 
 
@@ -77,14 +89,24 @@ def _validate_scrapfly_scenario(response) -> tuple[bool, str]:
         return False, "Scrapfly did not return js_scenario execution details"
 
     failed_steps = []
+    verification_seen = False
     for step in scenario.get("steps") or []:
         if step.get("success") is False or step.get("executed") is False:
             action = step.get("action", "unknown")
             detail = step.get("error") or step.get("result") or "not executed"
             failed_steps.append(f"{action}: {detail}")
+        if step.get("action") == "execute" and isinstance(step.get("result"), dict):
+            result = step["result"]
+            if "reply_visible" in result:
+                verification_seen = True
+                if result.get("reply_visible") is not True:
+                    return False, "Reply text not visible after send; Weibo may have blocked, hidden, or rejected it"
 
     if failed_steps:
         return False, "Scrapfly js_scenario failed: " + "; ".join(failed_steps)
+
+    if not verification_seen:
+        return False, "Scrapfly did not confirm reply text is visible after send"
 
     return True, "Scrapfly js_scenario completed"
 

@@ -132,6 +132,12 @@ def test_send_real_reply_uses_scrapfly_js_scenario(monkeypatch):
                     "steps": [
                         {"action": "scroll", "success": True, "executed": True},
                         {"action": "wait", "success": True, "executed": True},
+                        {
+                            "action": "execute",
+                            "success": True,
+                            "executed": True,
+                            "result": {"reply_visible": True},
+                        },
                     ]
                 }
             }
@@ -216,6 +222,57 @@ def test_real_reply_marks_failed_when_scrapfly_scenario_step_fails(tmp_path, mon
     assert "click" in lead["reply_text"]
 
 
+def test_real_reply_marks_failed_when_reply_text_is_not_visible(tmp_path, monkeypatch):
+    db.configure(str(tmp_path / "weibo.db"))
+    db.init_db()
+    db.insert_lead("alice", "上海", "想了解", "1001", "美甲")
+    lead_id = db.get_all_leads()[0]["id"]
+
+    class FakeResponse:
+        scrape_success = True
+        scrape_result = {
+            "browser_data": {
+                "js_scenario": {
+                    "steps": [
+                        {"action": "click", "success": True, "executed": True},
+                        {"action": "fill", "success": True, "executed": True},
+                        {"action": "click", "success": True, "executed": True},
+                        {
+                            "action": "execute",
+                            "success": True,
+                            "executed": True,
+                            "result": {"reply_visible": False},
+                        },
+                    ],
+                }
+            }
+        }
+
+    class FakeClient:
+        def __init__(self, key):
+            self.key = key
+
+        def scrape(self, config):
+            return FakeResponse()
+
+    monkeypatch.setattr(replier, "ENABLE_REAL_REPLIES", True, raising=False)
+    monkeypatch.setattr(replier, "SCRAPFLY_KEY", "key", raising=False)
+    monkeypatch.setattr(replier, "COOKIES", ["cookie"], raising=False)
+    monkeypatch.setattr(replier, "ScrapflyClient", FakeClient, raising=False)
+    monkeypatch.setattr(replier.time, "sleep", lambda seconds: None)
+
+    count = replier.run_reply(
+        lead_ids=[lead_id],
+        reply_text="hello",
+        confirm_real_send=True,
+    )
+
+    lead = db.get_all_leads()[0]
+    assert count == 0
+    assert lead["status"] == "failed"
+    assert "not visible" in lead["reply_text"]
+
+
 def test_real_reply_uses_unique_scrapfly_session_per_attempt(monkeypatch):
     calls = []
 
@@ -224,7 +281,15 @@ def test_real_reply_uses_unique_scrapfly_session_per_attempt(monkeypatch):
         scrape_result = {
             "browser_data": {
                 "js_scenario": {
-                    "steps": [{"action": "click", "success": True, "executed": True}]
+                    "steps": [
+                        {"action": "click", "success": True, "executed": True},
+                        {
+                            "action": "execute",
+                            "success": True,
+                            "executed": True,
+                            "result": {"reply_visible": True},
+                        },
+                    ]
                 }
             }
         }
