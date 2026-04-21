@@ -64,8 +64,39 @@ def test_is_beauty_keyword_uses_beauty_terms_whitelist():
 
 def test_has_intent_uses_intent_keyword_whitelist():
     assert has_intent("想做美甲，怎么预约") is True
+    for text in ["好美！种草！", "手机壳有链接吗", "下单啦，卸甲难不难", "正想要，感谢分享"]:
+        assert has_intent(text) is True
     assert has_intent("这个颜色真好看") is False
     assert has_intent("") is False
+
+
+def test_fetch_comments_follows_hotflow_pages(monkeypatch):
+    requested_urls = []
+
+    def fake_scrape_json(url, cookie_index=0, client=None):
+        requested_urls.append(url)
+        if "max_id=next-page" in url:
+            return {
+                "ok": 1,
+                "data": {
+                    "data": [{"id": "2", "text": "第二页"}],
+                    "max_id": 0,
+                },
+            }
+        return {
+            "ok": 1,
+            "data": {
+                "data": [{"id": "1", "text": "第一页"}],
+                "max_id": "next-page",
+            },
+        }
+
+    monkeypatch.setattr(scraper, "_scrape_json", fake_scrape_json)
+
+    comments = scraper.fetch_comments("1001", max_pages=2)
+
+    assert [comment["id"] for comment in comments] == ["1", "2"]
+    assert "max_id=next-page" in requested_urls[1]
 
 
 def test_run_scrape_requires_credentials(monkeypatch):

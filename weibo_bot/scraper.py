@@ -110,14 +110,36 @@ def search_posts(keyword: str, page: int = 1, cookie_index: int = 0, client: Any
         return []
 
 
-def fetch_comments(post_id: str, cookie_index: int = 0, client: Any | None = None) -> list[dict[str, Any]]:
-    url = f"https://m.weibo.cn/comments/hotflow?id={post_id}&mid={post_id}&max_id_type=0"
-    try:
-        data = _scrape_json(url, cookie_index=cookie_index, client=client)
-        return data.get("data", {}).get("data", [])
-    except Exception as exc:
-        print(f"[!] 评论获取失败 [post={post_id}]: {exc}")
-        return []
+def fetch_comments(
+    post_id: str,
+    cookie_index: int = 0,
+    client: Any | None = None,
+    max_pages: int = 3,
+) -> list[dict[str, Any]]:
+    comments: list[dict[str, Any]] = []
+    max_id: str | int = 0
+    max_id_type = 0
+
+    for page in range(max(1, max_pages)):
+        params = f"id={post_id}&mid={post_id}&max_id_type={max_id_type}"
+        if page > 0:
+            params += f"&max_id={urllib.parse.quote(str(max_id))}"
+        url = f"https://m.weibo.cn/comments/hotflow?{params}"
+        try:
+            data = _scrape_json(url, cookie_index=cookie_index, client=client)
+        except Exception as exc:
+            print(f"[!] 评论获取失败 [post={post_id}]: {exc}")
+            break
+
+        payload = data.get("data", {}) or {}
+        comments.extend(payload.get("data", []) or [])
+        max_id = payload.get("max_id") or 0
+        max_id_type = payload.get("max_id_type") or 0
+        if not max_id:
+            break
+        time.sleep(1)
+
+    return comments
 
 
 def run_scrape(
