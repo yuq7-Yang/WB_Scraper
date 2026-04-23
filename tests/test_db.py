@@ -1,4 +1,5 @@
 from weibo_bot import db
+import sqlite3
 
 
 def test_insert_lead_ignores_duplicate_post_user(tmp_path):
@@ -43,3 +44,36 @@ def test_init_db_migrates_and_insert_lead_stores_comment_id(tmp_path):
     lead = db.get_all_leads()[0]
     assert inserted is True
     assert lead["comment_id"] == "2001"
+
+
+def test_init_db_adds_lead_type_and_intent_score_columns(tmp_path):
+    db_path = tmp_path / "weibo.db"
+    db.configure(str(db_path))
+    db.init_db()
+
+    with sqlite3.connect(db_path) as conn:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(leads)").fetchall()}
+
+    assert "lead_type" in columns
+    assert "intent_score" in columns
+
+
+def test_insert_lead_stores_lead_type_and_intent_score(tmp_path):
+    db.configure(str(tmp_path / "weibo.db"))
+    db.init_db()
+
+    inserted = db.insert_lead(
+        "alice",
+        "上海",
+        "封层有没有推荐呀",
+        "1001",
+        "甲油胶推荐",
+        comment_id="2001",
+        lead_type="consumer",
+        intent_score=4,
+    )
+
+    lead = db.get_all_leads()[0]
+    assert inserted is True
+    assert lead["lead_type"] == "consumer"
+    assert lead["intent_score"] == 4

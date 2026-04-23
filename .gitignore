@@ -2,6 +2,12 @@ __pycache__/
 .pytest_cache/
 *.pyc
 weibo.db
+weibo-*.db
 logs/
 .env
 reply_templates.json
+active_keywords.json
+.tools/
+.venv/
+venv/
+*.egg-info/

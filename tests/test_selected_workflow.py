@@ -113,69 +113,168 @@ def test_run_reply_real_send_requires_env_and_request_confirmation(tmp_path, mon
     assert lead["reply_text"] == "real text"
 
 
-def test_make_scenario_returns_scrapfly_list():
-    scenario = replier._make_scenario("hello")
+def test_make_scenario_targets_comment_id_before_replying():
+    scenario = replier._make_scenario(
+        "hello",
+        comment_id="2001",
+        user_name="alice",
+        comment_text='有推荐吗<span class="url-icon">[哇]</span>',
+    )
+    setup_script = scenario[2]["execute"]["script"]
 
     assert isinstance(scenario, list)
     assert scenario[0]["scroll"]["element"] == "body"
-    assert scenario[4]["execute"]["script"]
+    assert "2001" in setup_script
+    assert "target_comment_found" in setup_script
+    assert "reply_button_clicked" in setup_script
+    assert "menu_reply_clicked" in setup_script
+    assert "target.click()" in setup_script
+    assert "closest" in setup_script
+    assert "alice" in setup_script
+    assert "有推荐吗" in setup_script
+    assert "url-icon" not in setup_script
+    assert "/回复|reply|comment|评论/i" not in setup_script
     assert scenario[5]["wait_for_selector"]["selector"] == replier.COMMENT_EDITOR_SELECTOR
     assert scenario[6]["fill"]["selector"] == replier.COMMENT_EDITOR_SELECTOR
     assert scenario[6]["fill"]["value"] == "hello"
     assert scenario[8]["click"]["selector"] == replier.COMMENT_SEND_SELECTOR
 
 
-def test_send_real_reply_uses_scrapfly_js_scenario(monkeypatch):
-    calls = []
+def test_send_real_reply_uses_compose_page_and_reply_api(monkeypatch):
+    class FakeResponse:
+        def __init__(self, text="", status_code=200, url="https://m.weibo.cn/api/comments/reply", cookies=None):
+            self.text = text
+            self.status_code = status_code
+            self.url = url
+            self.cookies = cookies or {}
 
+        def json(self):
+            return {"ok": 1, "data": {"text": "回复@alice:hello"}}
+
+        def raise_for_status(self):
+            return None
+
+    class FakeCookies(dict):
+        def set(self, key, value, domain=None, path=None):
+            self[key] = value
+
+        def get(self, key, domain=None):
+            return dict.get(self, key)
+
+        def get_dict(self, domain=None):
+            return dict(self)
+
+    class FakeSession:
+        def __init__(self):
+            self.cookies = FakeCookies()
+            self.calls = []
+
+        def get(self, url, headers=None, timeout=None):
+            self.calls.append(("get", url, headers))
+            self.cookies["XSRF-TOKEN"] = "19f2b2"
+            return FakeResponse(
+                text="var config = { st: '8a92e4' }",
+                status_code=200,
+                url=url,
+                cookies={"XSRF-TOKEN": "19f2b2"},
+            )
+
+        def post(self, url, headers=None, data=None, timeout=None):
+            self.calls.append(("post", url, headers, data))
+            return FakeResponse()
+
+    fake_session = FakeSession()
+
+    monkeypatch.setattr(replier, "SCRAPFLY_KEY", "key", raising=False)
+    monkeypatch.setattr(replier, "COOKIES", ["SUB=abc; XSRF-TOKEN=seed"], raising=False)
+    monkeypatch.setattr(replier.requests, "Session", lambda: fake_session, raising=False)
+
+    ok, info = replier._send_real_reply(
+        {"id": 10, "post_id": "1001", "comment_id": "2001"},
+        "hello",
+        cookie_index=0,
+    )
+
+    assert ok is True
+    assert info == "hello"
+    assert fake_session.calls[0][0] == "get"
+    assert "compose/reply?id=1001&reply=2001" in fake_session.calls[0][1]
+    assert fake_session.calls[1][0] == "post"
+    assert fake_session.calls[1][1] == "https://m.weibo.cn/api/comments/reply"
+    assert fake_session.calls[1][2]["X-XSRF-TOKEN"] == "19f2b2"
+    assert fake_session.calls[1][3]["mid"] == "1001"
+    assert fake_session.calls[1][3]["cid"] == "2001"
+    assert fake_session.calls[1][3]["content"] == "hello"
+    assert fake_session.calls[1][3]["st"] == "8a92e4"
+
+
+def test_send_real_reply_reports_login_redirect_when_reply_api_rejects(monkeypatch):
+    class FakeResponse:
+        def __init__(self, text="", status_code=200, url="https://m.weibo.cn/api/comments/reply", payload=None):
+            self.text = text
+            self.status_code = status_code
+            self.url = url
+            self._payload = payload or {"ok": -100, "url": "https://passport.weibo.com/sso/signin"}
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            return None
+
+    class FakeCookies(dict):
+        def set(self, key, value, domain=None, path=None):
+            self[key] = value
+
+        def get(self, key, domain=None):
+            return dict.get(self, key)
+
+    class FakeSession:
+        def __init__(self):
+            self.cookies = FakeCookies()
+
+        def get(self, url, headers=None, timeout=None):
+            self.cookies["XSRF-TOKEN"] = "19f2b2"
+            return FakeResponse(text="var config = { st: '8a92e4' }", status_code=200, url=url)
+
+        def post(self, url, headers=None, data=None, timeout=None):
+            return FakeResponse()
+
+    monkeypatch.setattr(replier, "COOKIES", ["SUB=abc; XSRF-TOKEN=seed"], raising=False)
+    monkeypatch.setattr(replier.requests, "Session", lambda: FakeSession(), raising=False)
+
+    ok, info = replier._send_real_reply(
+        {"id": 10, "post_id": "1001", "comment_id": "2001"},
+        "hello",
+        cookie_index=0,
+    )
+
+    assert ok is False
+    assert "passport.weibo.com" in info
+
+
+def test_validate_reports_target_comment_not_found():
     class FakeResponse:
         scrape_success = True
         scrape_result = {
             "browser_data": {
                 "js_scenario": {
                     "steps": [
-                        {"action": "scroll", "success": True, "executed": True},
-                        {"action": "wait", "success": True, "executed": True},
                         {
                             "action": "execute",
                             "success": True,
                             "executed": True,
-                            "result": {"reply_visible": True},
+                            "result": {"target_comment_found": False},
                         },
-                    ]
+                    ],
                 }
             }
         }
 
-    class FakeClient:
-        def __init__(self, key):
-            self.key = key
+    ok, info = replier._validate_scrapfly_scenario(FakeResponse())
 
-        def scrape(self, config):
-            calls.append(config)
-            return FakeResponse()
-
-    class FakeScrapeConfig(dict):
-        def __init__(self, **kwargs):
-            super().__init__(kwargs)
-
-    monkeypatch.setattr(replier, "SCRAPFLY_KEY", "key", raising=False)
-    monkeypatch.setattr(replier, "COOKIES", ["cookie"], raising=False)
-    monkeypatch.setattr(replier, "ScrapflyClient", FakeClient, raising=False)
-    monkeypatch.setattr(replier, "ScrapeConfig", FakeScrapeConfig, raising=False)
-
-    ok, info = replier._send_real_reply({"id": 10, "post_id": "1001"}, "hello", cookie_index=0)
-
-    assert ok is True
-    assert info == "hello"
-    assert calls[0]["url"] == "https://m.weibo.cn/detail/1001"
-    assert calls[0]["headers"]["Cookie"] == "cookie"
-    assert calls[0]["render_js"] is True
-    assert calls[0]["debug"] is True
-    assert calls[0]["correlation_id"] == calls[0]["session"]
-    assert calls[0]["tags"] == ["weibo-reply", "lead:10", "account:0"]
-    assert isinstance(calls[0]["js_scenario"], list)
-    assert calls[0]["js_scenario"][6]["fill"]["value"] == "hello"
+    assert ok is False
+    assert "target comment not found" in info
 
 
 def test_validate_reports_missing_comment_editor_before_fill_not_executed():
@@ -204,43 +303,13 @@ def test_validate_reports_missing_comment_editor_before_fill_not_executed():
     assert "comment editor not visible" in info
 
 
-def test_real_reply_marks_failed_when_scrapfly_scenario_step_fails(tmp_path, monkeypatch):
+def test_real_reply_marks_failed_when_reply_api_requests_login(tmp_path, monkeypatch):
     db.configure(str(tmp_path / "weibo.db"))
     db.init_db()
-    db.insert_lead("alice", "上海", "想了解", "1001", "美甲")
+    db.insert_lead("alice", "上海", "想了解", "1001", "美甲", comment_id="2001")
     lead_id = db.get_all_leads()[0]["id"]
-
-    class FakeResponse:
-        scrape_success = True
-        scrape_result = {
-            "browser_data": {
-                "js_scenario": {
-                    "executed": 4,
-                    "steps": [
-                        {"action": "scroll", "success": True, "executed": True},
-                        {"action": "wait", "success": True, "executed": True},
-                        {
-                            "action": "click",
-                            "success": False,
-                            "executed": False,
-                            "error": "selector not found",
-                        },
-                    ],
-                }
-            }
-        }
-
-    class FakeClient:
-        def __init__(self, key):
-            self.key = key
-
-        def scrape(self, config):
-            return FakeResponse()
-
     monkeypatch.setattr(replier, "ENABLE_REAL_REPLIES", True, raising=False)
-    monkeypatch.setattr(replier, "SCRAPFLY_KEY", "key", raising=False)
-    monkeypatch.setattr(replier, "COOKIES", ["cookie"], raising=False)
-    monkeypatch.setattr(replier, "ScrapflyClient", FakeClient, raising=False)
+    monkeypatch.setattr(replier, "_send_real_reply", lambda *args, **kwargs: (False, "https://passport.weibo.com/sso/signin"), raising=False)
     monkeypatch.setattr(replier.time, "sleep", lambda seconds: None)
 
     count = replier.run_reply(
@@ -252,46 +321,16 @@ def test_real_reply_marks_failed_when_scrapfly_scenario_step_fails(tmp_path, mon
     lead = db.get_all_leads()[0]
     assert count == 0
     assert lead["status"] == "failed"
-    assert "click" in lead["reply_text"]
+    assert "passport.weibo.com" in lead["reply_text"]
 
 
-def test_real_reply_marks_failed_when_reply_text_is_not_visible(tmp_path, monkeypatch):
+def test_real_reply_marks_failed_when_reply_api_returns_rejection_message(tmp_path, monkeypatch):
     db.configure(str(tmp_path / "weibo.db"))
     db.init_db()
-    db.insert_lead("alice", "上海", "想了解", "1001", "美甲")
+    db.insert_lead("alice", "上海", "想了解", "1001", "美甲", comment_id="2001")
     lead_id = db.get_all_leads()[0]["id"]
-
-    class FakeResponse:
-        scrape_success = True
-        scrape_result = {
-            "browser_data": {
-                "js_scenario": {
-                    "steps": [
-                        {"action": "click", "success": True, "executed": True},
-                        {"action": "fill", "success": True, "executed": True},
-                        {"action": "click", "success": True, "executed": True},
-                        {
-                            "action": "execute",
-                            "success": True,
-                            "executed": True,
-                            "result": {"reply_visible": False},
-                        },
-                    ],
-                }
-            }
-        }
-
-    class FakeClient:
-        def __init__(self, key):
-            self.key = key
-
-        def scrape(self, config):
-            return FakeResponse()
-
     monkeypatch.setattr(replier, "ENABLE_REAL_REPLIES", True, raising=False)
-    monkeypatch.setattr(replier, "SCRAPFLY_KEY", "key", raising=False)
-    monkeypatch.setattr(replier, "COOKIES", ["cookie"], raising=False)
-    monkeypatch.setattr(replier, "ScrapflyClient", FakeClient, raising=False)
+    monkeypatch.setattr(replier, "_send_real_reply", lambda *args, **kwargs: (False, "操作过于频繁"), raising=False)
     monkeypatch.setattr(replier.time, "sleep", lambda seconds: None)
 
     count = replier.run_reply(
@@ -303,54 +342,15 @@ def test_real_reply_marks_failed_when_reply_text_is_not_visible(tmp_path, monkey
     lead = db.get_all_leads()[0]
     assert count == 0
     assert lead["status"] == "failed"
-    assert "not visible" in lead["reply_text"]
+    assert "操作过于频繁" in lead["reply_text"]
 
 
-def test_real_reply_uses_unique_scrapfly_session_per_attempt(monkeypatch):
-    calls = []
+def test_session_from_cookie_populates_requests_cookie_jar():
+    session = replier._session_from_cookie("SUB=abc; XSRF-TOKEN=seed; MLOGIN=1")
 
-    class FakeResponse:
-        scrape_success = True
-        scrape_result = {
-            "browser_data": {
-                "js_scenario": {
-                    "steps": [
-                        {"action": "click", "success": True, "executed": True},
-                        {
-                            "action": "execute",
-                            "success": True,
-                            "executed": True,
-                            "result": {"reply_visible": True},
-                        },
-                    ]
-                }
-            }
-        }
-
-    class FakeClient:
-        def __init__(self, key):
-            self.key = key
-
-        def scrape(self, config):
-            calls.append(config)
-            return FakeResponse()
-
-    class FakeScrapeConfig(dict):
-        def __init__(self, **kwargs):
-            super().__init__(kwargs)
-
-    monkeypatch.setattr(replier, "SCRAPFLY_KEY", "key", raising=False)
-    monkeypatch.setattr(replier, "COOKIES", ["cookie"], raising=False)
-    monkeypatch.setattr(replier, "ScrapflyClient", FakeClient, raising=False)
-    monkeypatch.setattr(replier, "ScrapeConfig", FakeScrapeConfig, raising=False)
-
-    replier._send_real_reply({"id": 10, "post_id": "1001"}, "hello", cookie_index=0)
-    replier._send_real_reply({"id": 10, "post_id": "1001"}, "hello", cookie_index=0)
-
-    sessions = [call["session"] for call in calls]
-    assert sessions[0].startswith("weibo-reply-0-10-")
-    assert sessions[1].startswith("weibo-reply-0-10-")
-    assert sessions[0] != sessions[1]
+    assert session.cookies.get("SUB") == "abc"
+    assert session.cookies.get("XSRF-TOKEN") == "seed"
+    assert session.cookies.get("MLOGIN") == "1"
 
 
 def test_api_scrape_accepts_selected_keywords_and_limits(monkeypatch):

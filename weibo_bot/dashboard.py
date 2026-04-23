@@ -9,15 +9,17 @@ import webbrowser
 
 from flask import Flask, Response, jsonify, render_template_string, request
 
-from . import db, template_store
+from . import db, keyword_store, template_store
 from .config import (
+    BEAUTY_TERMS,
     DEFAULT_MAX_PER_KEYWORD,
     DEFAULT_MAX_TOTAL,
     ENABLE_REAL_REPLIES,
-    BEAUTY_TERMS,
     KEYWORDS,
+    LOCAL_LLM_ENABLED,
 )
-from .replier import run_reply
+from .local_llm import sanitize_comment_text
+from .replier import cancel_run, is_paused, pause_run, recall_reply, resume_run, run_reply
 from .scraper import run_scrape
 
 
@@ -31,6 +33,8 @@ CSV_COLUMNS = [
     "comment_id",
     "post_id",
     "keyword",
+    "lead_type",
+    "intent_score",
     "scraped_at",
     "status",
     "reply_text",
@@ -45,6 +49,12 @@ def _csv_safe(value):
     if text.startswith(("=", "+", "-", "@", "\t", "\r")):
         return "'" + text
     return text
+
+
+def _serialize_lead(lead: dict) -> dict:
+    row = dict(lead)
+    row["comment_text"] = sanitize_comment_text(row.get("comment_text"))
+    return row
 
 
 HTML = """
@@ -71,7 +81,6 @@ HTML = """
   .brand { align-items: center; display: flex; gap: 12px; min-width: 0; }
   .brand-logo { display: block; height: 40px; max-width: 180px; object-fit: contain; }
   .brand-title { color: #c2185b; font-size: 20px; font-weight: 800; line-height: 1.3; overflow-wrap: anywhere; }
-  h1 { margin: 0; font-size: 20px; line-height: 1.3; }
   h2 { font-size: 15px; margin: 0 0 10px; }
   main { padding: 16px 24px 32px; }
   button, .export { border: 0; border-radius: 6px; color: #ffffff; cursor: pointer; display: inline-block; font-size: 14px; font-weight: 700; padding: 9px 16px; text-decoration: none; }
@@ -85,6 +94,10 @@ HTML = """
   .box { background: #ffffff; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 12px; padding: 14px; }
   .kw-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
   .kw-chip { align-items: center; background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 8px; cursor: pointer; display: flex; gap: 5px; padding: 6px 10px; user-select: none; }
+  .kw-chip .kw-del { background: none; border: 0; color: #9ca3af; cursor: pointer; font-size: 14px; font-weight: 700; padding: 0 2px; }
+  .kw-chip .kw-del:hover { color: var(--red); }
+  .kw-suggest .kw-chip { background: #eef2ff; border-color: #c7d2fe; color: #3730a3; }
+  .kw-suggest .kw-chip.used { background: #e0e7ff; color: #6366f1; opacity: 0.55; }
   .kw-extra { border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; height: 68px; padding: 8px; resize: vertical; width: 100%; }
   .row { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; }
   .row input[type=number] { border: 1px solid #d1d5db; border-radius: 6px; padding: 6px; width: 90px; }
@@ -103,6 +116,7 @@ HTML = """
   .reviewed { color: var(--blue); font-weight: 700; }
   .replied { color: var(--green); font-weight: 700; }
   .failed { color: var(--red); font-weight: 700; }
+  .skipped { color: var(--muted); font-weight: 700; }
   .modal-mask { align-items: center; background: rgba(17, 24, 39, .52); display: none; inset: 0; justify-content: center; position: fixed; z-index: 20; }
   .modal-mask.show { display: flex; }
   .modal { background: #ffffff; border-radius: 8px; max-width: 94vw; padding: 20px; width: 560px; }
@@ -130,19 +144,23 @@ HTML = """
 </header>
 <main>
   <section class="box">
-    <h2>① 选择关键词</h2>
-    <div class="kw-grid" id="kwGrid"></div>
-    <div class="row" style="margin-bottom:10px">
-      <button class="outline" onclick="selectAllKeywords()">全选</button>
-      <button class="outline" onclick="clearAllKeywords()">清空</button>
+    <h2>1. 选择关键词</h2>
+    <div style="color:var(--muted); font-size:13px; margin-bottom:6px">关键词提示（点击加入采集列表）：</div>
+    <div class="kw-grid kw-suggest" id="kwSuggest"></div>
+    <textarea class="kw-extra" id="kwExtra" placeholder="手动追加关键词，每行一个"></textarea>
+    <div class="row" style="margin-top:8px">
+      <button class="blue" onclick="addCustomKeywords()">添加关键词</button>
       <a class="export" href="/api/export.csv">导出 CSV</a>
+      <span class="notice" id="kwAddMsg"></span>
       <span class="notice" id="realSendNotice">{{ real_send_notice }}</span>
     </div>
-    <textarea class="kw-extra" id="kwExtra" placeholder="手动追加关键词，每行一个"></textarea>
+    <div style="color:var(--muted); font-size:13px; margin:12px 0 6px">已选采集关键词（点击 × 移除）：</div>
+    <div class="kw-grid" id="kwActive"></div>
     <div class="row" style="margin-top:10px">
       <label>每个关键词最多采集 <input type="number" id="maxPerKw" value="{{ default_max_per_keyword }}" min="1" max="200"> 条</label>
       <label>总条数上限 <input type="number" id="maxTotal" value="{{ default_max_total }}" min="1" max="5000"> 条</label>
       <button class="scrape" id="scrapeBtn" onclick="startScrape()">开始采集</button>
+      <button class="outline" onclick="clearActiveKeywords()">清空已选</button>
     </div>
   </section>
 
@@ -155,6 +173,7 @@ HTML = """
     <span>已预演 <b id="reviewed">0</b></span>
     <span>已回复 <b id="replied">0</b></span>
     <span>失败 <b id="failed">0</b></span>
+    <span>已跳过 <b id="skipped">0</b></span>
   </section>
 
   <section class="box row">
@@ -162,6 +181,9 @@ HTML = """
     <button class="outline" onclick="clearSelection()">清空勾选</button>
     <span id="selCount">已勾选 0 人</span>
     <button class="send" onclick="openModal([])">发送评论</button>
+    <button class="outline" onclick="batchRetry()">批量重试</button>
+    <button class="outline" id="pauseBtn" onclick="togglePause()">暂停发送</button>
+    <button class="danger" onclick="deleteSelected()">批量删除</button>
   </section>
 
   <div class="table-wrap">
@@ -174,9 +196,9 @@ HTML = """
           <th>评论内容</th>
           <th>关键词</th>
           <th>帖子链接</th>
-          <th>状态</th>
           <th>预演/发送话术</th>
           <th>操作</th>
+          <th>删除</th>
         </tr>
       </thead>
       <tbody id="tableBody"></tbody>
@@ -216,6 +238,21 @@ HTML = """
 
 <script>
 const PRESETS = {{ keywords|tojson }};
+let ACTIVE_KEYWORDS = [];
+
+function persistActive() {
+  fetch("/api/keywords", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({keywords: ACTIVE_KEYWORDS})
+  });
+}
+
+function loadActiveFromServer() {
+  return fetch("/api/keywords").then(r => r.json()).then(data => {
+    if (Array.isArray(data)) ACTIVE_KEYWORDS = data;
+  }).catch(() => {});
+}
 let TEMPLATES = {{ templates|tojson }};
 const BEAUTY_TERMS = {{ beauty_terms|tojson }};
 const REAL_SEND_ENABLED = {{ real_send_enabled|tojson }};
@@ -223,7 +260,8 @@ const statusLabels = {
   pending: ["待回复", "pending"],
   reviewed: ["已预演", "reviewed"],
   replied: ["已回复", "replied"],
-  failed: ["失败", "failed"]
+  failed: ["失败", "failed"],
+  skipped: ["已跳过", "skipped"]
 };
 let pendingIds = [];
 
@@ -248,29 +286,94 @@ function postLink(postId) {
   return td;
 }
 
-function buildKwGrid() {
-  const grid = document.getElementById("kwGrid");
+function buildSuggestGrid() {
+  const grid = document.getElementById("kwSuggest");
   grid.replaceChildren();
+  const active = new Set(ACTIVE_KEYWORDS);
   PRESETS.forEach(kw => {
-    const label = document.createElement("label");
-    label.className = "kw-chip";
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.name = "kw";
-    input.value = kw;
-    label.appendChild(input);
-    label.appendChild(document.createTextNode(kw));
-    grid.appendChild(label);
+    const chip = document.createElement("span");
+    chip.className = "kw-chip" + (active.has(kw) ? " used" : "");
+    chip.textContent = kw;
+    chip.title = active.has(kw) ? "已在采集列表中" : "点击加入采集列表";
+    chip.addEventListener("click", () => {
+      if (active.has(kw)) return;
+      ACTIVE_KEYWORDS.push(kw);
+      buildActiveGrid();
+      buildSuggestGrid();
+      persistActive();
+    });
+    grid.appendChild(chip);
   });
 }
 
-function selectAllKeywords() { document.querySelectorAll("input[name=kw]").forEach(item => item.checked = true); }
-function clearAllKeywords() { document.querySelectorAll("input[name=kw]").forEach(item => item.checked = false); }
+function buildActiveGrid() {
+  const grid = document.getElementById("kwActive");
+  grid.replaceChildren();
+  if (!ACTIVE_KEYWORDS.length) {
+    const hint = document.createElement("span");
+    hint.style.color = "#9ca3af";
+    hint.style.fontSize = "13px";
+    hint.textContent = "暂未选择，点击上方提示或手动追加后添加";
+    grid.appendChild(hint);
+    return;
+  }
+  ACTIVE_KEYWORDS.forEach(kw => {
+    const chip = document.createElement("span");
+    chip.className = "kw-chip";
+    chip.textContent = kw;
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "kw-del";
+    del.title = "移除";
+    del.textContent = "×";
+    del.addEventListener("click", event => {
+      event.preventDefault();
+      event.stopPropagation();
+      removeActiveKeyword(kw);
+    });
+    chip.appendChild(del);
+    grid.appendChild(chip);
+  });
+}
+
+function removeActiveKeyword(kw) {
+  ACTIVE_KEYWORDS = ACTIVE_KEYWORDS.filter(item => item !== kw);
+  buildActiveGrid();
+  buildSuggestGrid();
+  persistActive();
+}
+
+function clearActiveKeywords() {
+  ACTIVE_KEYWORDS = [];
+  buildActiveGrid();
+  buildSuggestGrid();
+  persistActive();
+}
+
+function addCustomKeywords() {
+  const textarea = document.getElementById("kwExtra");
+  const msg = document.getElementById("kwAddMsg");
+  const entries = textarea.value.split("\\n").map(item => item.trim()).filter(Boolean);
+  if (!entries.length) { msg.textContent = "请输入关键词"; return; }
+  const invalid = entries.filter(keyword => !isBeautyKeyword(keyword));
+  if (invalid.length) {
+    alert(`关键词不在美业领域范围内，已拦截：\\n\\n${invalid.join("、")}\\n\\n请修改后重试。`);
+    return;
+  }
+  const existing = new Set(ACTIVE_KEYWORDS);
+  const added = [];
+  entries.forEach(keyword => {
+    if (!existing.has(keyword)) { ACTIVE_KEYWORDS.push(keyword); existing.add(keyword); added.push(keyword); }
+  });
+  buildActiveGrid();
+  buildSuggestGrid();
+  textarea.value = "";
+  msg.textContent = added.length ? `已添加 ${added.length} 个` : "关键词已存在";
+  if (added.length) persistActive();
+}
 
 function getSelectedKeywords() {
-  const checked = [...document.querySelectorAll("input[name=kw]:checked")].map(item => item.value);
-  const extra = document.getElementById("kwExtra").value.split("\\n").map(item => item.trim()).filter(Boolean);
-  return [...new Set([...checked, ...extra])];
+  return [...ACTIVE_KEYWORDS];
 }
 
 function isBeautyKeyword(keyword) {
@@ -278,23 +381,22 @@ function isBeautyKeyword(keyword) {
 }
 
 function canSelectForReply(status) {
-  return ["pending", "reviewed", "failed"].includes(status);
+  return ["pending", "reviewed", "failed", "skipped"].includes(status);
 }
 
 function canRetry(status) {
-  return ["reviewed", "failed"].includes(status);
+  return ["reviewed", "failed", "skipped"].includes(status);
 }
 
 function startScrape() {
   const keywords = getSelectedKeywords();
   if (!keywords.length) {
-    alert("请至少勾选一个关键词或手动输入关键词");
+    alert("请先从提示中点击选取，或手动追加关键词后再开始采集");
     return;
   }
-  const extra = document.getElementById("kwExtra").value.split("\\n").map(item => item.trim()).filter(Boolean);
-  const invalid = extra.filter(keyword => !isBeautyKeyword(keyword));
-  if (invalid.length) {
-    alert(`关键词不在美业领域范围内，已拦截：\\n\\n${invalid.join("、")}\\n\\n请修改后重试。`);
+  const pending = document.getElementById("kwExtra").value.trim();
+  if (pending) {
+    alert("检测到手动追加的关键词未添加，请先点击“添加关键词”再开始采集。");
     return;
   }
   document.getElementById("scrapeBtn").disabled = true;
@@ -327,12 +429,16 @@ function rowCheck(id) {
 }
 
 function refreshTable() {
+  const prevChecked = new Set(getCheckedIds().map(String));
+  const checkAllBox = document.getElementById("checkAll");
+  const checkAllWas = checkAllBox ? checkAllBox.checked : false;
   fetch("/api/leads").then(r => r.json()).then(data => {
     document.getElementById("total").textContent = data.length;
     document.getElementById("pending").textContent = data.filter(d => d.status === "pending").length;
     document.getElementById("reviewed").textContent = data.filter(d => d.status === "reviewed").length;
     document.getElementById("replied").textContent = data.filter(d => d.status === "replied").length;
     document.getElementById("failed").textContent = data.filter(d => d.status === "failed").length;
+    document.getElementById("skipped").textContent = data.filter(d => d.status === "skipped").length;
     const tbody = document.getElementById("tableBody");
     tbody.replaceChildren();
     data.forEach(row => {
@@ -344,9 +450,18 @@ function refreshTable() {
       tr.appendChild(cell(row.keyword));
       tr.appendChild(postLink(row.post_id));
       const [label, cls] = statusLabels[row.status] || [row.status, ""];
-      tr.appendChild(cell(label, cls));
-      tr.appendChild(cell(row.reply_text));
+      const replyCell = document.createElement("td");
+      if (label) {
+        const badge = document.createElement("span");
+        badge.className = cls;
+        badge.style.marginRight = "6px";
+        badge.textContent = `[${label}] `;
+        replyCell.appendChild(badge);
+      }
+      replyCell.appendChild(document.createTextNode(row.reply_text || ""));
+      tr.appendChild(replyCell);
       const action = document.createElement("td");
+      action.style.whiteSpace = "nowrap";
       if (row.status === "pending") {
         const send = document.createElement("button");
         send.className = "outline";
@@ -359,11 +474,32 @@ function refreshTable() {
         retry.className = "danger";
         retry.textContent = "重试";
         retry.addEventListener("click", () => retryLead(row.id));
+        retry.style.marginLeft = "4px";
         action.appendChild(retry);
       }
+      if (row.status === "replied") {
+        const recall = document.createElement("button");
+        recall.className = "outline";
+        recall.textContent = "撤回";
+        recall.title = row.sent_comment_id ? "从微博删除已发送的评论" : "缺少记录，无法撤回";
+        if (!row.sent_comment_id) recall.disabled = true;
+        recall.addEventListener("click", () => recallReply(row.id));
+        action.appendChild(recall);
+      }
       tr.appendChild(action);
+      const delCell = document.createElement("td");
+      const del = document.createElement("button");
+      del.className = "danger";
+      del.textContent = "删除";
+      del.addEventListener("click", () => deleteLeads([row.id]));
+      delCell.appendChild(del);
+      tr.appendChild(delCell);
       tbody.appendChild(tr);
     });
+    document.querySelectorAll(".row-check").forEach(item => {
+      if (prevChecked.has(String(item.value))) item.checked = true;
+    });
+    if (checkAllBox) checkAllBox.checked = checkAllWas && prevChecked.size > 0;
     updateSelCount();
   });
 }
@@ -477,6 +613,67 @@ function handleAutoMatchToggle(checked) {
 
 function retryLead(id) { fetch(`/api/retry/${id}`, {method: "POST"}).then(() => refreshTable()); }
 
+function batchRetry() {
+  const ids = getCheckedIds();
+  if (!ids.length) { alert("请先勾选要重试的评论"); return; }
+  if (!confirm(`将 ${ids.length} 条重置为待回复？重置后可再次发送。`)) return;
+  fetch("/api/retry/batch", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({lead_ids: ids})
+  }).then(r => r.json()).then(data => {
+    document.getElementById("log").textContent = `已重置 ${data.reset || 0} 条为待回复`;
+    refreshTable();
+  });
+}
+
+let isPaused = false;
+function togglePause() {
+  const url = isPaused ? "/api/reply/resume" : "/api/reply/pause";
+  fetch(url, {method: "POST"}).then(r => r.json()).then(data => {
+    isPaused = !!data.paused;
+    const btn = document.getElementById("pauseBtn");
+    btn.textContent = isPaused ? "继续发送" : "暂停发送";
+    btn.className = isPaused ? "send" : "outline";
+    document.getElementById("log").textContent = isPaused ? "已暂停，点击继续发送恢复" : "已继续发送";
+  });
+}
+
+function syncPauseState() {
+  fetch("/api/reply/state").then(r => r.json()).then(data => {
+    isPaused = !!data.paused;
+    const btn = document.getElementById("pauseBtn");
+    if (btn) {
+      btn.textContent = isPaused ? "继续发送" : "暂停发送";
+      btn.className = isPaused ? "send" : "outline";
+    }
+  });
+}
+
+function recallReply(id) {
+  if (!confirm("确认从微博撤回该评论？这会真实删除已发送的评论。")) return;
+  document.getElementById("log").textContent = "撤回中...";
+  fetch(`/api/recall/${id}`, {method: "POST"}).then(r => r.json()).then(data => {
+    document.getElementById("log").textContent = `${data.ok ? "撤回成功" : "撤回失败"}：${data.info || ""}`;
+    refreshTable();
+  });
+}
+
+function deleteLeads(ids) {
+  if (!ids.length) { alert("请先勾选要删除的用户"); return; }
+  if (!confirm(`确认删除 ${ids.length} 条记录？此操作不可撤销。`)) return;
+  fetch("/api/leads/delete", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({lead_ids: ids})
+  }).then(r => r.json()).then(data => {
+    document.getElementById("log").textContent = `已删除 ${data.deleted || 0} 条`;
+    refreshTable();
+  });
+}
+
+function deleteSelected() { deleteLeads(getCheckedIds()); }
+
 const stream = new EventSource("/stream");
 stream.onmessage = event => {
   const msg = JSON.parse(event.data);
@@ -485,8 +682,12 @@ stream.onmessage = event => {
   if (msg.refresh) refreshTable();
 };
 
-buildKwGrid();
+loadActiveFromServer().then(() => {
+  buildSuggestGrid();
+  buildActiveGrid();
+});
 handleAutoMatchToggle(true);
+syncPauseState();
 refreshTable();
 setInterval(refreshTable, 10000);
 </script>
@@ -513,7 +714,22 @@ def index():
 @app.route("/api/leads")
 def api_leads():
     db.init_db()
-    return jsonify(db.get_all_leads())
+    return jsonify([_serialize_lead(lead) for lead in db.get_all_leads()])
+
+
+@app.route("/api/keywords", methods=["GET"])
+def api_keywords_get():
+    return jsonify(keyword_store.load_keywords())
+
+
+@app.route("/api/keywords", methods=["POST"])
+def api_keywords_save():
+    body = request.get_json(silent=True) or {}
+    try:
+        saved = keyword_store.save_keywords(body.get("keywords") or [])
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+    return jsonify(saved)
 
 
 @app.route("/api/templates", methods=["GET"])
@@ -538,6 +754,7 @@ def api_export_csv():
     writer = csv.writer(output)
     writer.writerow(CSV_COLUMNS)
     for lead in db.get_all_leads():
+        lead = _serialize_lead(lead)
         writer.writerow([_csv_safe(lead.get(column)) for column in CSV_COLUMNS])
 
     return Response(
@@ -622,6 +839,62 @@ def api_reply():
 def api_retry(lead_id: int):
     db.update_lead_status(lead_id, "pending")
     return jsonify({"status": "reset"})
+
+
+@app.route("/api/reply/pause", methods=["POST"])
+def api_reply_pause():
+    pause_run()
+    return jsonify({"paused": True})
+
+
+@app.route("/api/reply/resume", methods=["POST"])
+def api_reply_resume():
+    resume_run()
+    return jsonify({"paused": False})
+
+
+@app.route("/api/reply/cancel", methods=["POST"])
+def api_reply_cancel():
+    cancel_run()
+    return jsonify({"cancelled": True})
+
+
+@app.route("/api/reply/state")
+def api_reply_state():
+    return jsonify({"paused": is_paused()})
+
+
+@app.route("/api/retry/batch", methods=["POST"])
+def api_retry_batch():
+    body = request.get_json(silent=True) or {}
+    try:
+        lead_ids = [int(lead_id) for lead_id in body.get("lead_ids", [])]
+    except (TypeError, ValueError):
+        return jsonify({"error": "invalid lead_ids"}), 400
+    for lead_id in lead_ids:
+        db.update_lead_status(lead_id, "pending")
+    return jsonify({"reset": len(lead_ids)})
+
+
+@app.route("/api/recall/<int:lead_id>", methods=["POST"])
+def api_recall(lead_id: int):
+    try:
+        ok, info = recall_reply(lead_id)
+    except Exception as exc:
+        return jsonify({"ok": False, "info": str(exc)}), 500
+    return jsonify({"ok": ok, "info": info})
+
+
+@app.route("/api/leads/delete", methods=["POST"])
+def api_delete_leads():
+    body = request.get_json(silent=True) or {}
+    raw_ids = body.get("lead_ids") or []
+    try:
+        lead_ids = [int(lead_id) for lead_id in raw_ids]
+    except (TypeError, ValueError):
+        return jsonify({"error": "invalid lead_ids"}), 400
+    deleted = db.delete_leads(lead_ids)
+    return jsonify({"deleted": deleted})
 
 
 @app.route("/stream")

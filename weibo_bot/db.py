@@ -39,6 +39,8 @@ def init_db() -> None:
                 comment_id TEXT,
                 post_id TEXT,
                 keyword TEXT,
+                lead_type TEXT,
+                intent_score INTEGER DEFAULT 0,
                 scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 status TEXT DEFAULT 'pending',
                 reply_text TEXT,
@@ -53,7 +55,30 @@ def init_db() -> None:
         }
         if "comment_id" not in columns:
             conn.execute("ALTER TABLE leads ADD COLUMN comment_id TEXT")
+        if "lead_type" not in columns:
+            conn.execute("ALTER TABLE leads ADD COLUMN lead_type TEXT")
+        if "intent_score" not in columns:
+            conn.execute("ALTER TABLE leads ADD COLUMN intent_score INTEGER DEFAULT 0")
+        if "sent_comment_id" not in columns:
+            conn.execute("ALTER TABLE leads ADD COLUMN sent_comment_id TEXT")
+        if "cookie_index" not in columns:
+            conn.execute("ALTER TABLE leads ADD COLUMN cookie_index INTEGER DEFAULT 0")
         conn.commit()
+
+
+def set_sent_comment(lead_id: int, sent_comment_id: str | None, cookie_index: int) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE leads SET sent_comment_id = ?, cookie_index = ? WHERE id = ?",
+            (sent_comment_id, cookie_index, lead_id),
+        )
+        conn.commit()
+
+
+def get_lead(lead_id: int) -> dict[str, Any] | None:
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM leads WHERE id = ?", (lead_id,)).fetchone()
+    return dict(row) if row else None
 
 
 def insert_lead(
@@ -63,15 +88,17 @@ def insert_lead(
     post_id: str,
     keyword: str | None,
     comment_id: str | None = None,
+    lead_type: str | None = None,
+    intent_score: int = 0,
 ) -> bool:
     with _connect() as conn:
         cursor = conn.execute(
             """
             INSERT OR IGNORE INTO leads
-                (user_name, location, comment_text, comment_id, post_id, keyword)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (user_name, location, comment_text, comment_id, post_id, keyword, lead_type, intent_score)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (user_name, location, comment_text, comment_id, post_id, keyword),
+            (user_name, location, comment_text, comment_id, post_id, keyword, lead_type, intent_score),
         )
         conn.commit()
         return cursor.rowcount == 1
@@ -103,6 +130,19 @@ def get_all_leads() -> list[dict[str, Any]]:
     with _connect() as conn:
         rows = conn.execute("SELECT * FROM leads ORDER BY scraped_at DESC, id DESC").fetchall()
     return [dict(row) for row in rows]
+
+
+def delete_leads(lead_ids: list[int]) -> int:
+    if not lead_ids:
+        return 0
+    placeholders = ",".join("?" for _ in lead_ids)
+    with _connect() as conn:
+        cursor = conn.execute(
+            f"DELETE FROM leads WHERE id IN ({placeholders})",
+            tuple(int(lead_id) for lead_id in lead_ids),
+        )
+        conn.commit()
+        return cursor.rowcount
 
 
 def update_lead_status(lead_id: int, status: str, reply_text: str | None = None) -> None:

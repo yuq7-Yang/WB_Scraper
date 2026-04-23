@@ -1,35 +1,33 @@
-from weibo_bot import db
-from weibo_bot import replier
+from weibo_bot import db, replier
 
 
 def test_run_reply_dry_run_marks_pending_leads_reviewed(tmp_path, monkeypatch):
     db.configure(str(tmp_path / "weibo.db"))
     db.init_db()
-    db.insert_lead("alice", "上海", "求款式", "1001", "美甲款式")
-    monkeypatch.setattr(replier, "REPLY_TEMPLATES", ["欢迎了解"])
+    db.insert_lead("alice", "\u4e0a\u6d77", "\u6c42\u6b3e\u5f0f", "1001", "\u7f8e\u7532\u6b3e\u5f0f")
+    monkeypatch.setattr(replier, "REPLY_TEMPLATES", ["\u6b22\u8fce\u4e86\u89e3"])
 
     count = replier.run_reply(limit=1, dry_run=True)
 
     lead = db.get_all_leads()[0]
     assert count == 1
     assert lead["status"] == "reviewed"
-    assert lead["reply_text"] == "欢迎了解"
+    assert lead["reply_text"] == "\u6b22\u8fce\u4e86\u89e3"
 
 
-# -- auto_match + 账号轮换 ---------------------------------------------------
 class TestAutoMatchAndRotation:
-    def test_auto_match_uses_keyword_template(self, monkeypatch):
+    def test_auto_match_uses_generated_reply(self, monkeypatch):
         fake_leads = [
             {
                 "id": 1,
-                "keyword": "美甲培训",
+                "keyword": "\u7f8e\u7532\u57f9\u8bad",
                 "comment_id": "c1",
                 "user_name": "u1",
                 "status": "pending",
             },
             {
                 "id": 2,
-                "keyword": "进货",
+                "keyword": "\u8fdb\u8d27",
                 "comment_id": "c2",
                 "user_name": "u2",
                 "status": "pending",
@@ -44,6 +42,11 @@ class TestAutoMatchAndRotation:
             return True, reply_text
 
         monkeypatch.setattr(replier, "reply_to_lead", fake_reply_to_lead)
+        monkeypatch.setattr(
+            replier,
+            "generate_reply_for_lead",
+            lambda lead: f"\u5b9a\u5236:{lead['keyword']}\uff0c\u611f\u5174\u8da3\u53ef\u4ee5\u627e\u6211\u514d\u8d39\u9886\u53d6\u95e8\u7968\u94fe\u63a5\u3002",
+        )
         monkeypatch.setattr(replier.time, "sleep", lambda seconds: None)
 
         count = replier.run_reply(
@@ -54,23 +57,59 @@ class TestAutoMatchAndRotation:
         )
 
         assert count == 2
-        assert "美甲板块" in sent[0]["text"]
-        assert "供应商" in sent[1]["text"] or "品牌商" in sent[1]["text"]
-        assert "私信我获取门票" in sent[0]["text"]
-        assert "私信我获取门票" in sent[1]["text"]
+        assert sent[0]["text"] == "\u5b9a\u5236:\u7f8e\u7532\u57f9\u8bad\uff0c\u611f\u5174\u8da3\u53ef\u4ee5\u627e\u6211\u514d\u8d39\u9886\u53d6\u95e8\u7968\u94fe\u63a5\u3002"
+        assert sent[1]["text"] == "\u5b9a\u5236:\u8fdb\u8d27\uff0c\u611f\u5174\u8da3\u53ef\u4ee5\u627e\u6211\u514d\u8d39\u9886\u53d6\u95e8\u7968\u94fe\u63a5\u3002"
+
+    def test_auto_match_skips_unrelated_comments(self, monkeypatch):
+        fake_leads = [
+            {
+                "id": 1,
+                "keyword": "\u732b\u773c\u7f8e\u7532\u63a8\u8350",
+                "comment_id": "c1",
+                "user_name": "u1",
+                "status": "pending",
+            }
+        ]
+        monkeypatch.setattr(replier, "get_leads_by_ids", lambda ids: fake_leads)
+
+        sent = []
+        updates = []
+
+        def fake_reply_to_lead(lead, reply_text, confirm_real_send=False, cookie_index=0):
+            sent.append(reply_text)
+            return True, reply_text
+
+        def fake_update(lead_id, status, reply_text=None):
+            updates.append((lead_id, status, reply_text))
+
+        monkeypatch.setattr(replier, "reply_to_lead", fake_reply_to_lead)
+        monkeypatch.setattr(replier, "update_lead_status", fake_update)
+        monkeypatch.setattr(replier, "generate_reply_for_lead", lambda lead: None)
+        monkeypatch.setattr(replier.time, "sleep", lambda seconds: None)
+
+        count = replier.run_reply(
+            lead_ids=[1],
+            reply_text="",
+            confirm_real_send=False,
+            auto_match=True,
+        )
+
+        assert count == 0
+        assert sent == []
+        assert updates == [(1, "failed", "comment not relevant for expo reply")]
 
     def test_manual_mode_uses_same_text(self, monkeypatch):
         fake_leads = [
             {
                 "id": 1,
-                "keyword": "美甲培训",
+                "keyword": "\u7f8e\u7532\u57f9\u8bad",
                 "comment_id": "c1",
                 "user_name": "u1",
                 "status": "pending",
             },
             {
                 "id": 2,
-                "keyword": "进货",
+                "keyword": "\u8fdb\u8d27",
                 "comment_id": "c2",
                 "user_name": "u2",
                 "status": "pending",
@@ -89,13 +128,13 @@ class TestAutoMatchAndRotation:
 
         count = replier.run_reply(
             lead_ids=[1, 2],
-            reply_text="手动话术内容",
+            reply_text="\u624b\u52a8\u8bdd\u672f\u5185\u5bb9",
             confirm_real_send=False,
             auto_match=False,
         )
 
         assert count == 2
-        assert sent == ["手动话术内容", "手动话术内容"]
+        assert sent == ["\u624b\u52a8\u8bdd\u672f\u5185\u5bb9", "\u624b\u52a8\u8bdd\u672f\u5185\u5bb9"]
 
     def test_get_cookie_for_index_cycles(self, monkeypatch):
         from weibo_bot import config
@@ -123,7 +162,7 @@ class TestAutoMatchAndRotation:
         fake_leads = [
             {
                 "id": index,
-                "keyword": "美甲",
+                "keyword": "\u7f8e\u7532",
                 "comment_id": f"c{index}",
                 "user_name": f"u{index}",
                 "status": "pending",
@@ -143,7 +182,7 @@ class TestAutoMatchAndRotation:
 
         count = replier.run_reply(
             lead_ids=list(range(1, 7)),
-            reply_text="话术",
+            reply_text="\u8bdd\u672f",
             confirm_real_send=False,
         )
 

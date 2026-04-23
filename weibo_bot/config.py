@@ -13,10 +13,11 @@ def parse_env_file(path: str = ".env") -> dict[str, str]:
             if not line or line.startswith("#") or "=" not in line:
                 continue
             key, value = line.split("=", 1)
+            key = key.lstrip("\ufeff").strip()
             value = value.strip()
             if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
                 value = value[1:-1]
-            values[key.strip()] = value
+            values[key] = value
     return values
 
 
@@ -42,6 +43,26 @@ def _env_bool(name: str, default: bool) -> bool:
     return value.strip().lower() not in {"0", "false", "no", "off"}
 
 
+def _env_float(name: str, default: float) -> float:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
+
+
+def _env_int(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
 load_env_file()
 
 DB_PATH = os.getenv("WEIBO_DB_PATH", "weibo.db")
@@ -50,16 +71,51 @@ WEIBO_COOKIES = os.getenv("WEIBO_COOKIES", "")
 COOKIES = _split_cookies(WEIBO_COOKIES)
 
 KEYWORDS = [
-    "美甲款式",
-    "美睫款式",
-    "美甲胶水",
-    "美睫胶水",
-    "美甲品牌",
-    "美睫品牌",
-    "美甲培训",
-    "美睫培训",
     "美睫店",
     "美甲店",
+    "美甲",
+    "美睫",
+    "美发",
+    "美容",
+    "护肤",
+    "彩妆",
+    "美业",
+    "美妆",
+    "指甲",
+    "睫毛",
+    "发型",
+    "面膜",
+    "美体",
+    "纹眉",
+    "纹绣",
+    "脱毛",
+    "美白",
+    "祛斑",
+    "spa",
+    "美容院",
+    "沙龙",
+    "耗材",
+    "胶水",
+    "培训",
+    "穿戴甲",
+    "可穿戴甲",
+    "甲片",
+    "饰品",
+    "工具设备",
+    "甲油胶",
+    "光疗甲",
+    "延长甲",
+    "半永久",
+    "皮肤管理",
+    "美容仪器",
+    "开店",
+    "加盟",
+    "进货",
+    "拿货",
+    "采购",
+    "批发",
+    "供应商",
+    "原材料",
 ]
 
 EAST_CHINA = ["上海", "江苏", "浙江", "安徽", "福建", "江西", "山东"]
@@ -173,19 +229,145 @@ INTENT_KEYWORDS = [
     "卸甲",
 ]
 
+B2B_INTENT_TERMS = [
+    "开店",
+    "加盟",
+    "进货",
+    "拿货",
+    "批发",
+    "供应链",
+    "供货",
+    "培训",
+    "学校",
+    "代理",
+    "选品",
+    "品牌",
+    "项目",
+]
+
+CONSUMER_INTENT_TERMS = [
+    "推荐",
+    "链接",
+    "同款",
+    "教程",
+    "封层",
+    "胶水",
+    "甲油胶",
+    "款式",
+    "想做",
+    "想买",
+    "在哪里买",
+    "怎么买",
+    "有没有",
+    "好不好用",
+    "种草",
+]
+
+UNRELATED_COMMENT_TERMS = [
+    "奶茶",
+    "袜子",
+    "分趾袜",
+    "拖鞋",
+    "鞋子",
+    "衣服",
+    "裤子",
+    "包包",
+    "投诉",
+    "皮肤用物",
+    "头皮精华",
+]
+
+SPAM_COMMENT_TERMS = [
+    "点赞关注",
+    "关注我",
+    "关注一下",
+    "互粉",
+    "互关",
+    "关注回关",
+    "转发抽",
+    "转发微博",
+    "抽奖",
+    "中奖",
+    "免费送",
+    "免费领取",
+    "福利链接",
+    "扫码",
+    "扫我",
+    "加V",
+    "加微信",
+    "加v信",
+    "加vx",
+    "戳我头像",
+    "点我头像",
+    "主页有",
+    "主页置顶",
+    "私我发你",
+    "广告位",
+    "打榜",
+    "应援",
+    "代打",
+    "推广",
+    "外推",
+    "刷赞",
+    "刷粉",
+    "接单",
+    "vx同号",
+    "v同号",
+]
+
+AI_LIKE_PATTERNS = [
+    "作为一名",
+    "作为一个",
+    "作为专业",
+    "作为一位",
+    "综上所述",
+    "总的来说，",
+    "首先，",
+    "其次，",
+    "再者，",
+    "综合考虑",
+    "在当今",
+    "随着社会的发展",
+    "值得注意的是",
+    "希望对你有帮助",
+    "希望对您有帮助",
+    "以上内容仅供参考",
+    "仅供参考",
+    "从专业角度",
+    "建议您在选择",
+    "我们致力于",
+    "我们专注于",
+    "我们秉承",
+    "为您提供专业",
+]
+
 REPLY_TEMPLATES = [
     "您好！我们专注美甲美睫耗材批发，品质有保障，欢迎私聊了解～",
     "看到您对美甲感兴趣，我们有专业培训课程，欢迎咨询！",
     "您好，我们提供美甲美睫全套耗材，支持小批量，欢迎了解～",
 ]
 
-REPLY_DELAY = int(os.getenv("REPLY_DELAY", "8"))
-MAX_REPLIES_PER_RUN = int(os.getenv("MAX_REPLIES_PER_RUN", "20"))
-MAX_COMMENTS_PER_KEYWORD = int(os.getenv("MAX_COMMENTS_PER_KEYWORD", "2"))
-DEFAULT_MAX_PER_KEYWORD = int(os.getenv("DEFAULT_MAX_PER_KEYWORD", str(MAX_COMMENTS_PER_KEYWORD)))
-DEFAULT_MAX_TOTAL = int(os.getenv("DEFAULT_MAX_TOTAL", "20"))
+SCRAPE_PAGE_DELAY = _env_float("SCRAPE_PAGE_DELAY", 0.0)
+SCRAPE_POST_DELAY = _env_float("SCRAPE_POST_DELAY", 0.2)
+SCRAPE_KEYWORD_DELAY = _env_float("SCRAPE_KEYWORD_DELAY", 0.5)
+REPLY_DELAY = _env_float("REPLY_DELAY", 3.0)
+REPLIES_PER_ACCOUNT = max(1, _env_int("REPLIES_PER_ACCOUNT", 3))
+MAX_REPLIES_PER_RUN = _env_int("MAX_REPLIES_PER_RUN", 20)
+MAX_COMMENTS_PER_KEYWORD = _env_int("MAX_COMMENTS_PER_KEYWORD", 2)
+DEFAULT_MAX_PER_KEYWORD = _env_int("DEFAULT_MAX_PER_KEYWORD", MAX_COMMENTS_PER_KEYWORD)
+DEFAULT_MAX_TOTAL = _env_int("DEFAULT_MAX_TOTAL", 20)
 DRY_RUN_REPLIES = _env_bool("DRY_RUN_REPLIES", True)
 ENABLE_REAL_REPLIES = _env_bool("ENABLE_REAL_REPLIES", False)
+LOCAL_LLM_ENABLED = _env_bool("LOCAL_LLM_ENABLED", False)
+LOCAL_LLM_BASE_URL = os.getenv("LOCAL_LLM_BASE_URL", "http://127.0.0.1:11434").strip() or "http://127.0.0.1:11434"
+LOCAL_LLM_MODEL = os.getenv("LOCAL_LLM_MODEL", "qwen2.5").strip() or "qwen2.5"
+LOCAL_LLM_TIMEOUT = _env_float("LOCAL_LLM_TIMEOUT", 20.0)
+MIN_B2B_INTENT_SCORE = _env_int("MIN_B2B_INTENT_SCORE", 3)
+MIN_CONSUMER_INTENT_SCORE = _env_int("MIN_CONSUMER_INTENT_SCORE", 3)
+LOCAL_LLM_TICKET_CTA = (
+    os.getenv("LOCAL_LLM_TICKET_CTA", "感兴趣的话私信我，我发你门票链接。").strip()
+    or "感兴趣的话私信我，我发你门票链接。"
+)
 
 
 KEYWORD_REPLY_MAP = [

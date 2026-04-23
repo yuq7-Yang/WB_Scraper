@@ -7,15 +7,26 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from .config import (
+    AI_LIKE_PATTERNS,
+    B2B_INTENT_TERMS,
     BEAUTY_TERMS,
     COOKIES,
+    CONSUMER_INTENT_TERMS,
     EAST_CHINA,
     INTENT_KEYWORDS,
     KEYWORDS,
     MAX_COMMENTS_PER_KEYWORD,
+    MIN_B2B_INTENT_SCORE,
+    MIN_CONSUMER_INTENT_SCORE,
+    SCRAPE_KEYWORD_DELAY,
+    SCRAPE_PAGE_DELAY,
+    SCRAPE_POST_DELAY,
     SCRAPFLY_KEY,
+    SPAM_COMMENT_TERMS,
+    UNRELATED_COMMENT_TERMS,
 )
 from .db import init_db, insert_lead
+from .local_llm import sanitize_comment_text
 
 
 SCRAPE_CONFIG = {
@@ -47,6 +58,74 @@ def is_beauty_keyword(keyword: str) -> bool:
 
 def has_intent(text: str | None) -> bool:
     return bool(text and any(keyword in text for keyword in INTENT_KEYWORDS))
+
+
+def _looks_spam_or_ai(text: str) -> bool:
+    lowered = text.lower()
+    if any(term.lower() in lowered for term in SPAM_COMMENT_TERMS):
+        return True
+    if any(pattern in text for pattern in AI_LIKE_PATTERNS):
+        return True
+    # heuristic: comment length >= 40 and structured like AI prose
+    # (commas/periods used in "有序列表"/"建议 ..." style)
+    if len(text) >= 40 and text.count("，") >= 4 and ("建议" in text or "选择" in text or "可以考虑" in text):
+        return True
+    # heuristic: pure-url / "扫码加微xxx" phone-like fragments
+    if ("http" in lowered or "www." in lowered) and len(text) <= 40:
+        return True
+    return False
+
+
+def analyze_intent(text: str | None, keyword: str | None = None) -> dict[str, Any]:
+    clean_text = sanitize_comment_text(text)
+    clean_keyword = sanitize_comment_text(keyword)
+    haystack = f"{clean_keyword} {clean_text}".strip()
+
+    if not clean_text:
+        return {"matched": False, "lead_type": None, "intent_score": 0, "clean_text": clean_text}
+
+    if any(term in clean_text.lower() for term in [item.lower() for item in UNRELATED_COMMENT_TERMS]):
+        return {"matched": False, "lead_type": None, "intent_score": 0, "clean_text": clean_text}
+
+    if _looks_spam_or_ai(clean_text):
+        return {"matched": False, "lead_type": None, "intent_score": 0, "clean_text": clean_text}
+
+    b2b_score = 0
+    consumer_score = 0
+    b2b_hits = 0
+    consumer_hits = 0
+    beauty_hits = 0
+
+    for term in B2B_INTENT_TERMS:
+        if term in haystack:
+            b2b_score += 3
+            b2b_hits += 1
+    for term in CONSUMER_INTENT_TERMS:
+        if term in haystack:
+            consumer_score += 2
+            consumer_hits += 1
+    for term in BEAUTY_TERMS:
+        if term in haystack:
+            b2b_score += 1
+            consumer_score += 1
+            beauty_hits += 1
+    for term in INTENT_KEYWORDS:
+        if term in clean_text:
+            consumer_score += 1
+
+    if beauty_hits == 0:
+        return {"matched": False, "lead_type": None, "intent_score": 0, "clean_text": clean_text}
+
+    if b2b_hits > 0 and b2b_score >= MIN_B2B_INTENT_SCORE:
+        return {"matched": True, "lead_type": "b2b", "intent_score": b2b_score, "clean_text": clean_text}
+    if consumer_hits > 0 and consumer_score >= MIN_CONSUMER_INTENT_SCORE:
+        return {
+            "matched": True,
+            "lead_type": "consumer",
+            "intent_score": consumer_score,
+            "clean_text": clean_text,
+        }
+    return {"matched": False, "lead_type": None, "intent_score": max(b2b_score, consumer_score), "clean_text": clean_text}
 
 
 def _parse_weibo_time(value: str | None) -> datetime | None:
@@ -137,7 +216,8 @@ def fetch_comments(
         max_id_type = payload.get("max_id_type") or 0
         if not max_id:
             break
-        time.sleep(1)
+        if SCRAPE_PAGE_DELAY > 0:
+            time.sleep(SCRAPE_PAGE_DELAY)
 
     return comments
 
@@ -174,8 +254,9 @@ def run_scrape(
                 if found_for_keyword >= max_per_keyword or total_found >= max_total:
                     break
                 source = comment.get("source", "")
-                text = comment.get("text", "")
-                if has_intent(text):
+                analysis = analyze_intent(comment.get("text", ""), keyword=keyword)
+                text = analysis["clean_text"]
+                if analysis["matched"]:
                     inserted = insert_lead(
                         user_name=comment.get("user", {}).get("screen_name", ""),
                         location=source,
@@ -183,12 +264,16 @@ def run_scrape(
                         comment_id=str(comment.get("id") or comment.get("idstr") or "") or None,
                         post_id=post_id,
                         keyword=keyword,
+                        lead_type=analysis["lead_type"],
+                        intent_score=analysis["intent_score"],
                     )
                     if inserted:
                         total_found += 1
                         found_for_keyword += 1
-            time.sleep(2.5)
-        time.sleep(5)
+            if SCRAPE_POST_DELAY > 0:
+                time.sleep(SCRAPE_POST_DELAY)
+        if SCRAPE_KEYWORD_DELAY > 0:
+            time.sleep(SCRAPE_KEYWORD_DELAY)
     return total_found
 
 
