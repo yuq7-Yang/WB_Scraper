@@ -99,6 +99,8 @@ def is_relevant_for_expo_reply(lead: dict) -> bool:
 def _build_messages(lead: dict) -> list[dict[str, str]]:
     keyword = sanitize_comment_text(lead.get("keyword"))
     comment_text = sanitize_comment_text(lead.get("comment_text"))
+    keyword_text = keyword or "\u672a\u63d0\u4f9b"
+    comment_text_value = comment_text or "\u672a\u63d0\u4f9b"
     return [
         {
             "role": "system",
@@ -118,8 +120,8 @@ def _build_messages(lead: dict) -> list[dict[str, str]]:
         {
             "role": "user",
             "content": (
-                f"\u5173\u952e\u8bcd\uff1a{keyword or '\u672a\u63d0\u4f9b'}\n"
-                f"\u8bc4\u8bba\u5185\u5bb9\uff1a{comment_text or '\u672a\u63d0\u4f9b'}\n"
+                f"\u5173\u952e\u8bcd\uff1a{keyword_text}\n"
+                f"\u8bc4\u8bba\u5185\u5bb9\uff1a{comment_text_value}\n"
                 "\u8bf7\u5199\u4e00\u6761\u5148\u7a81\u51fa\u6211\u4eec\u5c55\u4f1a\u73b0\u573a\u6709\u4ec0\u4e48\uff0c\u518d\u81ea\u7136\u627f\u63a5\u5174\u8da3\u70b9\u7684\u77ed\u53e5\u3002"
             ),
         },
