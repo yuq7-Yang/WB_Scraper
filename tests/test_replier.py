@@ -96,7 +96,7 @@ class TestAutoMatchAndRotation:
 
         assert count == 0
         assert sent == []
-        assert updates == [(1, "failed", "comment not relevant for expo reply")]
+        assert updates == [(1, "skipped", "评论与美业展会不相关，已跳过")]
 
     def test_manual_mode_uses_same_text(self, monkeypatch):
         fake_leads = [

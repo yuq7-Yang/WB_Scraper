@@ -4,6 +4,7 @@ __pycache__/
 weibo.db
 weibo-*.db
 logs/
+*.log
 .env
 reply_templates.json
 active_keywords.json

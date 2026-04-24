@@ -73,7 +73,7 @@ def test_extract_post_ids_skips_posts_older_than_90_days(monkeypatch):
 
 def test_is_beauty_keyword_uses_beauty_terms_whitelist():
     assert is_beauty_keyword("上海美甲店") is True
-    for keyword in ["穿戴甲", "甲片", "饰品", "工具设备", "半永久", "美甲店加盟", "美睫进货"]:
+    for keyword in ["穿戴甲", "甲片", "饰品", "工具设备", "半永久", "美甲店加盟", "美睫进货", "果冻胶", "果冻贴推荐"]:
         assert is_beauty_keyword(keyword) is True
     assert is_beauty_keyword("周末露营") is False
 

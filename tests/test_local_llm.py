@@ -75,7 +75,7 @@ def test_generate_reply_for_lead_strips_duplicate_intro(monkeypatch):
     monkeypatch.setattr(local_llm.requests, "post", lambda *args, **kwargs: FakeResponse())
 
     reply = local_llm.generate_reply_for_lead(
-        {"keyword": "\u7f8e\u7532\u6559\u5b66", "comment_text": "\u6559\u7a0b\u592a\u7cbe\u81f4\u4e86"}
+        {"keyword": "\u7f8e\u7532\u6559\u5b66", "comment_text": "\u6709\u6559\u7a0b\u63a8\u8350\u5417"}
     )
 
     assert (
@@ -134,6 +134,38 @@ def test_generate_reply_for_lead_returns_none_for_unrelated_comment(monkeypatch)
     assert reply is None
 
 
+def test_generate_reply_for_lead_returns_none_without_clear_demand(monkeypatch):
+    monkeypatch.setattr(local_llm._config, "LOCAL_LLM_ENABLED", True, raising=False)
+
+    reply = local_llm.generate_reply_for_lead(
+        {
+            "keyword": "果冻胶",
+            "comment_text": "这个颜色挺好看",
+        }
+    )
+
+    assert reply is None
+
+
+def test_generate_reply_for_lead_accepts_clear_demand_for_guodong_tie(monkeypatch):
+    monkeypatch.setattr(local_llm._config, "LOCAL_LLM_ENABLED", False, raising=False)
+    monkeypatch.setattr(
+        local_llm._config,
+        "get_template_by_keyword",
+        lambda keyword: f"fallback:{keyword}",
+        raising=False,
+    )
+
+    reply = local_llm.generate_reply_for_lead(
+        {
+            "keyword": "果冻贴",
+            "comment_text": "果冻贴有推荐的吗",
+        }
+    )
+
+    assert reply == "fallback:果冻贴"
+
+
 def test_run_reply_auto_match_uses_generated_local_reply(tmp_path, monkeypatch):
     db.configure(str(tmp_path / "weibo.db"))
     db.init_db()
@@ -164,3 +196,14 @@ def test_run_reply_auto_match_uses_generated_local_reply(tmp_path, monkeypatch):
         lead["reply_text"]
         == "\u6211\u8fd9\u8fb9\u662f\u7f8e\u4e1a\u5c55\u4f1a\u7684\uff0c\u73b0\u573a\u4f1a\u6709\u4e0d\u5c11\u7532\u6cb9\u80f6\u548c\u5c01\u5c42\u54c1\u724c\u53ef\u4ee5\u76f4\u63a5\u5bf9\u6bd4\u770b\uff0c\u611f\u5174\u8da3\u53ef\u4ee5\u627e\u6211\u514d\u8d39\u9886\u53d6\u95e8\u7968\u94fe\u63a5\u3002"
     )
+
+
+def test_build_messages_asks_llm_to_avoid_repeating_same_copy():
+    messages = local_llm._build_messages(
+        {
+            "keyword": "果冻胶",
+            "comment_text": "果冻胶有推荐的吗",
+        }
+    )
+
+    assert "不要和上一条回复使用几乎一样的表达" in messages[0]["content"]

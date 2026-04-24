@@ -119,8 +119,8 @@ def test_dashboard_includes_post_link_column():
     html = response.get_data(as_text=True)
     assert response.status_code == 200
     assert "https://m.weibo.cn/detail/" in html
-    assert "lead_type" in html
-    assert "intent_score" in html
+    assert "查看帖子" in html
+    assert "用户名称" not in html
 
 
 def test_dashboard_allows_retrying_reviewed_and_failed_rows():
@@ -131,9 +131,9 @@ def test_dashboard_allows_retrying_reviewed_and_failed_rows():
     html = response.get_data(as_text=True)
     assert response.status_code == 200
     assert "function canSelectForReply(status)" in html
-    assert '["pending", "reviewed", "failed"].includes(status)' in html
+    assert '["pending", "reviewed", "failed", "skipped"].includes(status)' in html
     assert "function canRetry(status)" in html
-    assert '["reviewed", "failed"].includes(status)' in html
+    assert '["reviewed", "failed", "skipped"].includes(status)' in html
 
 
 class TestApiReplyAutoMatch:

@@ -30,8 +30,8 @@ def test_run_scrape_limits_total_across_keywords(tmp_path, monkeypatch):
         "fetch_comments",
         lambda *args, **kwargs: [
             {"source": "来自上海", "user": {"screen_name": "one"}, "text": "想做美甲"},
-            {"source": "来自浙江", "user": {"screen_name": "two"}, "text": "求推荐"},
-            {"source": "来自江苏", "user": {"screen_name": "three"}, "text": "培训多少钱"},
+            {"source": "来自浙江", "user": {"screen_name": "two"}, "text": "美甲求推荐"},
+            {"source": "来自江苏", "user": {"screen_name": "three"}, "text": "美甲培训多少钱"},
         ],
     )
 
@@ -196,7 +196,7 @@ def test_send_real_reply_uses_compose_page_and_reply_api(monkeypatch):
     )
 
     assert ok is True
-    assert info == "hello"
+    assert info == {"text": "hello", "sent_comment_id": None}
     assert fake_session.calls[0][0] == "get"
     assert "compose/reply?id=1001&reply=2001" in fake_session.calls[0][1]
     assert fake_session.calls[1][0] == "post"
@@ -404,7 +404,8 @@ def test_dashboard_includes_updated_controls_and_safety_copy():
 
     html = response.get_data(as_text=True)
     assert response.status_code == 200
-    assert 'id="kwGrid"' in html
+    assert 'id="kwSuggest"' in html
+    assert 'id="kwActive"' in html
     assert 'id="kwExtra"' in html
     assert 'id="maxPerKw"' in html
     assert 'id="maxTotal"' in html

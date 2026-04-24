@@ -16,6 +16,8 @@ BEAUTY_SIGNALS = [
     "\u776b\u6bdb",
     "\u732b\u773c",
     "\u7532\u6cb9\u80f6",
+    "\u679c\u51bb\u80f6",
+    "\u679c\u51bb\u8d34",
     "\u80f6\u6c34",
     "\u5c01\u5c42",
     "\u7a7f\u6234\u7532",
@@ -91,9 +93,7 @@ def is_relevant_for_expo_reply(lead: dict) -> bool:
         return False
     if not _has_beauty_context(keyword, comment_text):
         return False
-    if _contains_any(comment_text, INTENT_SIGNALS):
-        return True
-    return bool(keyword and len(comment_text) <= 18)
+    return _contains_any(comment_text, INTENT_SIGNALS)
 
 
 def _build_messages(lead: dict) -> list[dict[str, str]]:
@@ -110,6 +110,7 @@ def _build_messages(lead: dict) -> list[dict[str, str]]:
                 "\u56f4\u7ed5\u54c1\u724c\u3001\u4ea7\u54c1\u3001\u6750\u6599\u3001\u5de5\u5177\u3001\u57f9\u8bad\u3001\u9879\u76ee\u3001\u4f9b\u5e94\u94fe\u3001\u9009\u54c1\u3001\u5f00\u5e97\u8d44\u6e90\u91cc\u6700\u76f8\u5173\u7684\u4e00\u7c7b\u6765\u5199\u3002"
                 "\u4e0d\u8981\u5148\u5bd2\u6684\uff0c\u4e0d\u8981\u50cf\u666e\u901a\u7f51\u53cb\u95f2\u804a\uff0c\u4e0d\u8981\u5938\u5bf9\u65b9\uff0c"
                 "\u4e0d\u8981\u7f16\u9020\u548c\u8bc4\u8bba\u65e0\u5173\u7684\u751f\u6d3b\u573a\u666f\u3002"
+                "\u4e0d\u8981\u548c\u4e0a\u4e00\u6761\u56de\u590d\u4f7f\u7528\u51e0\u4e4e\u4e00\u6837\u7684\u8868\u8fbe\uff0c\u5c3d\u91cf\u6362\u4e00\u79cd\u81ea\u7136\u8bf4\u6cd5\u3002"
                 "\u4e0d\u8981\u51fa\u73b0AI\u3001\u81ea\u6211\u4ecb\u7ecd\u3001\u8054\u7cfb\u65b9\u5f0f\u3001\u79c1\u4fe1\u3001\u95e8\u7968\u3001\u94fe\u63a5\u3002"
                 "\u957f\u5ea6\u63a7\u5236\u572814\u523030\u4e2a\u6c49\u5b57\u3002"
             ),
