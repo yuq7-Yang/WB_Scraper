@@ -1,0 +1,17 @@
+[Unit]
+Description=WB Scraper dashboard service
+After=network.target
+
+[Service]
+Type=simple
+User=wb
+Group=wb
+WorkingDirectory=/opt/wb_scraper
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/wb_scraper/.venv/bin/gunicorn --config /opt/wb_scraper/deploy/gunicorn.conf.py weibo_bot.dashboard:app
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

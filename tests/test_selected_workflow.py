@@ -10,6 +10,12 @@ class ImmediateThread:
         self.target()
 
 
+def build_logged_in_client():
+    client = dashboard.app.test_client()
+    client.post("/login", data={"username": "CIBE", "password": "cibe8888"})
+    return client
+
+
 def test_parse_env_file_can_hold_real_reply_flag(tmp_path):
     env_file = tmp_path / ".env"
     env_file.write_text('ENABLE_REAL_REPLIES="true"\n', encoding="utf-8")
@@ -357,7 +363,7 @@ def test_api_scrape_accepts_selected_keywords_and_limits(monkeypatch):
     calls = []
     monkeypatch.setattr(dashboard.threading, "Thread", ImmediateThread)
     monkeypatch.setattr(dashboard, "run_scrape", lambda **kwargs: calls.append(kwargs) or 7)
-    client = dashboard.app.test_client()
+    client = build_logged_in_client()
 
     response = client.post(
         "/api/scrape",
@@ -374,7 +380,7 @@ def test_api_reply_accepts_selected_leads_template_and_confirmation(monkeypatch)
     calls = []
     monkeypatch.setattr(dashboard.threading, "Thread", ImmediateThread)
     monkeypatch.setattr(dashboard, "run_reply", lambda **kwargs: calls.append(kwargs) or 2)
-    client = dashboard.app.test_client()
+    client = build_logged_in_client()
 
     response = client.post(
         "/api/reply",
@@ -388,7 +394,7 @@ def test_api_reply_accepts_selected_leads_template_and_confirmation(monkeypatch)
 
 
 def test_api_templates_returns_reply_templates():
-    client = dashboard.app.test_client()
+    client = build_logged_in_client()
 
     response = client.get("/api/templates")
 
@@ -398,7 +404,7 @@ def test_api_templates_returns_reply_templates():
 
 
 def test_dashboard_includes_updated_controls_and_safety_copy():
-    client = dashboard.app.test_client()
+    client = build_logged_in_client()
 
     response = client.get("/")
 
@@ -421,7 +427,7 @@ def test_dashboard_includes_updated_controls_and_safety_copy():
 
 
 def test_dashboard_matches_plan_branding_and_blocks_invalid_keywords():
-    client = dashboard.app.test_client()
+    client = build_logged_in_client()
 
     response = client.get("/")
 

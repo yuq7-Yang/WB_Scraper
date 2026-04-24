@@ -6,6 +6,7 @@ weibo-*.db
 logs/
 *.log
 .env
+data/
 reply_templates.json
 active_keywords.json
 .tools/

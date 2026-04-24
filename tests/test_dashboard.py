@@ -9,11 +9,109 @@ class ImmediateThread:
         self.target()
 
 
+def build_logged_in_client():
+    client = dashboard.app.test_client()
+    client.post("/login", data={"username": "CIBE", "password": "cibe8888"})
+    return client
+
+
+def test_dashboard_requires_login_for_home_and_api():
+    client = dashboard.app.test_client()
+
+    home_response = client.get("/")
+    api_response = client.get("/api/leads")
+
+    assert home_response.status_code == 302
+    assert "/login" in home_response.headers["Location"]
+    assert api_response.status_code == 401
+    assert api_response.get_json()["error"] == "auth_required"
+
+
+def test_login_accepts_fixed_credentials_and_sets_remember_cookie():
+    client = dashboard.app.test_client()
+
+    response = client.post(
+        "/login",
+        data={"username": "CIBE", "password": "cibe8888"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/")
+    set_cookie = response.headers.get("Set-Cookie", "")
+    assert "remember_login=" in set_cookie
+
+
+def test_login_allows_access_after_success():
+    client = dashboard.app.test_client()
+    client.post("/login", data={"username": "CIBE", "password": "cibe8888"})
+
+    response = client.get("/api/leads")
+
+    assert response.status_code == 200
+
+
+def test_remember_cookie_allows_access_without_session():
+    client = dashboard.app.test_client()
+    login_response = client.post(
+        "/login",
+        data={"username": "CIBE", "password": "cibe8888"},
+        follow_redirects=False,
+    )
+    remember_cookie = login_response.headers.get("Set-Cookie", "").split(";", 1)[0]
+    cookie_name, cookie_value = remember_cookie.split("=", 1)
+
+    with client.session_transaction() as sess:
+        sess.clear()
+    client.set_cookie(cookie_name, cookie_value)
+
+    response = client.get("/api/leads")
+
+    assert response.status_code == 200
+
+
+def test_login_rejects_invalid_credentials():
+    client = dashboard.app.test_client()
+
+    response = client.post(
+        "/login",
+        data={"username": "wrong", "password": "bad"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "登录信息不正确" in response.get_data(as_text=True)
+
+
+def test_main_uses_runtime_env_settings(monkeypatch):
+    calls = {}
+
+    monkeypatch.setenv("DASHBOARD_HOST", "0.0.0.0")
+    monkeypatch.setenv("DASHBOARD_PORT", "8888")
+    monkeypatch.setenv("DASHBOARD_OPEN_BROWSER", "false")
+    monkeypatch.setattr(dashboard.db, "init_db", lambda: calls.setdefault("init_db", 0) or calls.__setitem__("init_db", 1))
+    monkeypatch.setattr(dashboard.webbrowser, "open", lambda url: calls.setdefault("browser", []).append(url))
+
+    def fake_run(**kwargs):
+        calls["run"] = kwargs
+
+    monkeypatch.setattr(dashboard.app, "run", fake_run)
+
+    dashboard.main()
+
+    assert calls["init_db"] == 1
+    assert calls["run"]["host"] == "0.0.0.0"
+    assert calls["run"]["port"] == 8888
+    assert calls["run"]["debug"] is False
+    assert calls["run"]["threaded"] is True
+    assert calls.get("browser") in (None, [])
+
+
 def test_api_leads_returns_inserted_rows(tmp_path):
     db.configure(str(tmp_path / "weibo.db"))
     db.init_db()
     db.insert_lead("alice", "\u4e0a\u6d77", "\u6c42\u63a8\u8350", "1001", "\u7f8e\u7532\u5e97")
-    client = dashboard.app.test_client()
+    client = build_logged_in_client()
 
     response = client.get("/api/leads")
 
@@ -31,7 +129,7 @@ def test_api_leads_sanitizes_comment_text_for_display(tmp_path):
         "1001",
         "\u7f8e\u7532\u6b3e\u5f0f",
     )
-    client = dashboard.app.test_client()
+    client = build_logged_in_client()
 
     response = client.get("/api/leads")
 
@@ -53,7 +151,7 @@ def test_api_leads_includes_lead_type_and_intent_score(tmp_path):
         lead_type="consumer",
         intent_score=4,
     )
-    client = dashboard.app.test_client()
+    client = build_logged_in_client()
 
     response = client.get("/api/leads")
 
@@ -68,7 +166,7 @@ def test_retry_resets_failed_row_to_pending(tmp_path):
     db.insert_lead("alice", "\u4e0a\u6d77", "\u6c42\u63a8\u8350", "1001", "\u7f8e\u7532\u5e97")
     lead = db.get_pending_leads(1)[0]
     db.update_lead_status(lead["id"], "failed", "network")
-    client = dashboard.app.test_client()
+    client = build_logged_in_client()
 
     response = client.post(f"/api/retry/{lead['id']}")
 
@@ -82,7 +180,7 @@ def test_retry_resets_reviewed_row_to_pending_and_clears_reply(tmp_path):
     db.insert_lead("alice", "\u4e0a\u6d77", "\u6c42\u63a8\u8350", "1001", "\u7f8e\u7532\u5e97")
     lead = db.get_pending_leads(1)[0]
     db.update_lead_status(lead["id"], "reviewed", "\u9884\u6f14\u8bdd\u672f")
-    client = dashboard.app.test_client()
+    client = build_logged_in_client()
 
     response = client.post(f"/api/retry/{lead['id']}")
 
@@ -97,7 +195,7 @@ def test_export_csv_returns_database_rows(tmp_path):
     db.configure(str(tmp_path / "weibo.db"))
     db.init_db()
     db.insert_lead("alice", "\u676d\u5dde", "=\u654f\u611f\u5f00\u5934", "1001", "\u7f8e\u7532", comment_id="2001")
-    client = dashboard.app.test_client()
+    client = build_logged_in_client()
 
     response = client.get("/api/export.csv")
 
@@ -112,7 +210,7 @@ def test_export_csv_returns_database_rows(tmp_path):
 
 
 def test_dashboard_includes_post_link_column():
-    client = dashboard.app.test_client()
+    client = build_logged_in_client()
 
     response = client.get("/")
 
@@ -124,7 +222,7 @@ def test_dashboard_includes_post_link_column():
 
 
 def test_dashboard_allows_retrying_reviewed_and_failed_rows():
-    client = dashboard.app.test_client()
+    client = build_logged_in_client()
 
     response = client.get("/")
 
@@ -146,7 +244,7 @@ class TestApiReplyAutoMatch:
 
         monkeypatch.setattr(dashboard.threading, "Thread", ImmediateThread)
         monkeypatch.setattr(dashboard, "run_reply", fake_run_reply)
-        client = dashboard.app.test_client()
+        client = build_logged_in_client()
 
         response = client.post(
             "/api/reply",
@@ -169,7 +267,7 @@ class TestApiReplyAutoMatch:
 
         monkeypatch.setattr(dashboard.threading, "Thread", ImmediateThread)
         monkeypatch.setattr(dashboard, "run_reply", fake_run_reply)
-        client = dashboard.app.test_client()
+        client = build_logged_in_client()
 
         response = client.post(
             "/api/reply",

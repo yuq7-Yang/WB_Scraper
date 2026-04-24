@@ -1,6 +1,12 @@
 from weibo_bot import dashboard, template_store
 
 
+def build_logged_in_client():
+    client = dashboard.app.test_client()
+    client.post("/login", data={"username": "CIBE", "password": "cibe8888"})
+    return client
+
+
 def test_add_template_saves_locally_and_deduplicates(tmp_path):
     template_store.configure(str(tmp_path / "reply_templates.json"))
 
@@ -25,7 +31,7 @@ def test_add_template_rejects_blank(tmp_path):
 
 def test_template_api_adds_and_returns_saved_template(tmp_path):
     template_store.configure(str(tmp_path / "reply_templates.json"))
-    client = dashboard.app.test_client()
+    client = build_logged_in_client()
 
     response = client.post("/api/templates", json={"text": "new saved template"})
 
@@ -35,7 +41,7 @@ def test_template_api_adds_and_returns_saved_template(tmp_path):
 
 
 def test_dashboard_includes_custom_template_controls():
-    client = dashboard.app.test_client()
+    client = build_logged_in_client()
 
     response = client.get("/")
 

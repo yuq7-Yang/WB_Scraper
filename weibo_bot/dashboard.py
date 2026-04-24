@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import csv
+import hashlib
+import hmac
 import io
 import json
+import os
 import queue
 import threading
 import webbrowser
 
-from flask import Flask, Response, jsonify, render_template_string, request
+from flask import Flask, Response, jsonify, make_response, redirect, render_template_string, request, session, url_for
 
 from . import db, keyword_store, template_store
 from .config import (
@@ -24,7 +27,14 @@ from .scraper import run_scrape
 
 
 app = Flask(__name__)
+app.secret_key = os.getenv("DASHBOARD_SECRET_KEY", "cibe-weibo-dashboard-login")
 event_queue: queue.Queue[dict] = queue.Queue()
+
+AUTH_USERNAME = os.getenv("DASHBOARD_USERNAME", "CIBE")
+AUTH_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "cibe8888")
+REMEMBER_COOKIE = "remember_login"
+REMEMBER_MAX_AGE = 60 * 60 * 24 * 365 * 5
+PUBLIC_ENDPOINTS = {"login", "static"}
 
 CSV_COLUMNS = [
     "user_name",
@@ -51,10 +61,195 @@ def _csv_safe(value):
     return text
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() not in {"0", "false", "no", "off"}
+
+
 def _serialize_lead(lead: dict) -> dict:
     row = dict(lead)
     row["comment_text"] = sanitize_comment_text(row.get("comment_text"))
     return row
+
+
+def _build_remember_token() -> str:
+    digest = hmac.new(
+        app.secret_key.encode("utf-8"),
+        f"{AUTH_USERNAME}:{AUTH_PASSWORD}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    return f"{AUTH_USERNAME}:{digest}"
+
+
+def _has_valid_remember_cookie() -> bool:
+    token = request.cookies.get(REMEMBER_COOKIE, "")
+    return hmac.compare_digest(token, _build_remember_token())
+
+
+def _is_logged_in() -> bool:
+    return bool(session.get("logged_in"))
+
+
+def _login_user() -> None:
+    session["logged_in"] = True
+
+
+def _logout_user() -> None:
+    session.clear()
+
+
+def _unauthorized_response():
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "auth_required"}), 401
+    return redirect(url_for("login", next=request.path))
+
+
+@app.before_request
+def require_login():
+    if request.endpoint in PUBLIC_ENDPOINTS:
+        return None
+    if _is_logged_in():
+        return None
+    if _has_valid_remember_cookie():
+        _login_user()
+        return None
+    return _unauthorized_response()
+
+
+LOGIN_HTML = """
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CIBE 登录</title>
+<style>
+  :root {
+    --bg-top: #fff4e8;
+    --bg-bottom: #f4d7d7;
+    --panel: rgba(255, 255, 255, 0.92);
+    --ink: #2b2320;
+    --muted: #7a6b65;
+    --line: rgba(110, 72, 55, 0.14);
+    --accent: #a43b2f;
+    --accent-deep: #7d281f;
+    --shadow: 0 24px 80px rgba(122, 57, 37, 0.18);
+  }
+  * { box-sizing: border-box; }
+  body {
+    align-items: center;
+    background:
+      radial-gradient(circle at top left, rgba(255,255,255,.72), transparent 36%),
+      linear-gradient(135deg, var(--bg-top), var(--bg-bottom));
+    color: var(--ink);
+    display: flex;
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+    justify-content: center;
+    margin: 0;
+    min-height: 100vh;
+    padding: 24px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 28px;
+    box-shadow: var(--shadow);
+    max-width: 430px;
+    overflow: hidden;
+    width: 100%;
+  }
+  .hero {
+    background:
+      linear-gradient(135deg, rgba(164,59,47,.94), rgba(234,127,89,.86)),
+      linear-gradient(120deg, rgba(255,255,255,.2), transparent 50%);
+    color: #fff9f5;
+    padding: 30px 30px 26px;
+  }
+  .eyebrow {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .18em;
+    margin: 0 0 10px;
+    opacity: .82;
+    text-transform: uppercase;
+  }
+  h1 { font-size: 30px; margin: 0 0 10px; }
+  .hero p { line-height: 1.7; margin: 0; opacity: .92; }
+  form { padding: 28px 30px 30px; }
+  label {
+    color: var(--muted);
+    display: block;
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .field { margin-bottom: 18px; }
+  input {
+    background: #fffdfb;
+    border: 1px solid #e8d8d2;
+    border-radius: 14px;
+    color: var(--ink);
+    font-size: 15px;
+    outline: none;
+    padding: 14px 15px;
+    width: 100%;
+  }
+  input:focus {
+    border-color: rgba(164,59,47,.5);
+    box-shadow: 0 0 0 4px rgba(164,59,47,.12);
+  }
+  button {
+    background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+    border: 0;
+    border-radius: 14px;
+    color: #fff;
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 700;
+    padding: 14px 18px;
+    width: 100%;
+  }
+  .hint { color: var(--muted); font-size: 12px; line-height: 1.6; margin-top: 14px; }
+  .error {
+    background: #fff2f0;
+    border: 1px solid #f0c4ba;
+    border-radius: 14px;
+    color: #a63a2b;
+    font-size: 13px;
+    margin-bottom: 16px;
+    padding: 12px 14px;
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="hero">
+      <div class="eyebrow">CIBE Secure Access</div>
+      <h1>登录面板</h1>
+      <p>请输入固定账号和密码。登录成功后，这台电脑会长期保持可访问状态，直到手动退出登录。</p>
+    </div>
+    <form method="post" action="/login">
+      {% if error %}
+      <div class="error">{{ error }}</div>
+      {% endif %}
+      <input type="hidden" name="next" value="{{ next_url }}">
+      <div class="field">
+        <label for="username">登录名</label>
+        <input id="username" name="username" type="text" autocomplete="username" required>
+      </div>
+      <div class="field">
+        <label for="password">密码</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+      </div>
+      <button type="submit">进入系统</button>
+      <div class="hint">请输入管理员分配的登录信息，验证通过后进入系统。</div>
+    </form>
+  </div>
+</body>
+</html>
+"""
 
 
 HTML = """
@@ -78,6 +273,7 @@ HTML = """
   * { box-sizing: border-box; }
   body { font-family: "Microsoft YaHei", Arial, sans-serif; margin: 0; color: var(--ink); background: #f7f7f8; }
   header { background: #ffffff; border-bottom: 1px solid var(--line); padding: 16px 24px; display: flex; justify-content: space-between; gap: 16px; align-items: center; }
+  .header-actions { align-items: center; display: flex; gap: 12px; }
   .brand { align-items: center; display: flex; gap: 12px; min-width: 0; }
   .brand-logo { display: block; height: 40px; max-width: 180px; object-fit: contain; }
   .brand-title { color: #c2185b; font-size: 20px; font-weight: 800; line-height: 1.3; overflow-wrap: anywhere; }
@@ -140,7 +336,10 @@ HTML = """
     <img src="/static/logo.png" alt="CIBE美博会" class="brand-logo" onerror="this.style.display='none'">
     <div class="brand-title">美业精准拓客面板</div>
   </div>
-  <div id="credits">Credits：请在 Scrapfly Dashboard 查看</div>
+  <div class="header-actions">
+    <div id="credits">Credits：请在 Scrapfly Dashboard 查看</div>
+    <a class="export" href="/logout">退出登录</a>
+  </div>
 </header>
 <main>
   <section class="box">
@@ -696,6 +895,55 @@ setInterval(refreshTable, 10000);
 """
 
 
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "GET":
+        if _is_logged_in() or _has_valid_remember_cookie():
+            if _has_valid_remember_cookie():
+                _login_user()
+            return redirect(url_for("index"))
+        return render_template_string(
+            LOGIN_HTML,
+            error=None,
+            next_url=request.args.get("next", "/"),
+        )
+
+    username = (request.form.get("username") or "").strip()
+    password = request.form.get("password") or ""
+    next_url = request.form.get("next") or "/"
+    if not next_url.startswith("/"):
+        next_url = "/"
+
+    if username != AUTH_USERNAME or password != AUTH_PASSWORD:
+        return (
+            render_template_string(
+                LOGIN_HTML,
+                error="登录信息不正确",
+                next_url=next_url,
+            ),
+            200,
+        )
+
+    _login_user()
+    response = make_response(redirect(next_url))
+    response.set_cookie(
+        REMEMBER_COOKIE,
+        _build_remember_token(),
+        max_age=REMEMBER_MAX_AGE,
+        httponly=True,
+        samesite="Lax",
+    )
+    return response
+
+
+@app.route("/logout")
+def logout():
+    _logout_user()
+    response = make_response(redirect(url_for("login")))
+    response.delete_cookie(REMEMBER_COOKIE)
+    return response
+
+
 @app.route("/")
 def index():
     db.init_db()
@@ -911,9 +1159,13 @@ def stream():
 
 
 def main() -> None:
+    host = os.getenv("DASHBOARD_HOST", "127.0.0.1")
+    port = int(os.getenv("DASHBOARD_PORT", "5000"))
+    open_browser = _env_bool("DASHBOARD_OPEN_BROWSER", True)
     db.init_db()
-    webbrowser.open("http://127.0.0.1:5000")
-    app.run(host="127.0.0.1", port=5000, debug=False, threaded=True)
+    if open_browser:
+        webbrowser.open(f"http://{host}:{port}")
+    app.run(host=host, port=port, debug=False, threaded=True)
 
 
 if __name__ == "__main__":
