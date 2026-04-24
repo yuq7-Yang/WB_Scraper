@@ -357,7 +357,7 @@ REPLY_TEMPLATES = [
 SCRAPE_PAGE_DELAY = _env_float("SCRAPE_PAGE_DELAY", 0.0)
 SCRAPE_POST_DELAY = _env_float("SCRAPE_POST_DELAY", 0.2)
 SCRAPE_KEYWORD_DELAY = _env_float("SCRAPE_KEYWORD_DELAY", 0.5)
-REPLY_DELAY = _env_float("REPLY_DELAY", 3.0)
+REPLY_DELAY = _env_float("REPLY_DELAY", 7.0)
 REPLIES_PER_ACCOUNT = max(1, _env_int("REPLIES_PER_ACCOUNT", 3))
 MAX_REPLIES_PER_RUN = _env_int("MAX_REPLIES_PER_RUN", 20)
 MAX_COMMENTS_PER_KEYWORD = _env_int("MAX_COMMENTS_PER_KEYWORD", 2)
@@ -372,8 +372,8 @@ LOCAL_LLM_TIMEOUT = _env_float("LOCAL_LLM_TIMEOUT", 20.0)
 MIN_B2B_INTENT_SCORE = _env_int("MIN_B2B_INTENT_SCORE", 3)
 MIN_CONSUMER_INTENT_SCORE = _env_int("MIN_CONSUMER_INTENT_SCORE", 3)
 LOCAL_LLM_TICKET_CTA = (
-    os.getenv("LOCAL_LLM_TICKET_CTA", "感兴趣的话私信我，我发你门票链接。").strip()
-    or "感兴趣的话私信我，我发你门票链接。"
+    os.getenv("LOCAL_LLM_TICKET_CTA", "感兴趣可以私信我，或者找我免费领门票。").strip()
+    or "感兴趣可以私信我，或者找我免费领门票。"
 )
 
 

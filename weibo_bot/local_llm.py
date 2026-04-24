@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections import deque
 from html import unescape
 
 import requests
@@ -8,7 +9,19 @@ import requests
 from . import config as _config
 from .config import UNRELATED_COMMENT_TERMS
 
-INTRO_PREFIX = "\u6211\u8fd9\u8fb9\u662f\u7f8e\u4e1a\u5c55\u4f1a\u7684"
+INTRO_PREFIXES = [
+    "我这边是展会的",
+    "展会这边",
+    "我们展会现场这边",
+]
+CTA_VARIANTS = [
+    "感兴趣可以私信我免费领门票。",
+    "想来的话可以找我免费领门票。",
+    "要门票的话私信我，我这边可以免费发你。",
+    "感兴趣就找我，我这边能免费给你门票。",
+]
+_reply_variant_index = 0
+_recent_auto_replies: deque[str] = deque(maxlen=24)
 
 BEAUTY_SIGNALS = [
     "\u7f8e\u7532",
@@ -71,8 +84,43 @@ def sanitize_comment_text(value: str | None) -> str:
     return text.strip()
 
 
+def _next_variant_index() -> int:
+    global _reply_variant_index
+    current = _reply_variant_index
+    _reply_variant_index += 1
+    return current
+
+
+def _strip_ticket_cta(text: str) -> str:
+    cleaned = str(text or "").strip()
+    cleaned = cleaned.replace("CIBE", "展会")
+    cleaned = cleaned.replace("展会展会", "展会")
+    cleaned = re.sub(r"(有需要的话|感兴趣的话|感兴趣就|要门票的话).{0,30}(私信我|找我).{0,20}(门票|链接).*$", "", cleaned)
+    cleaned = re.sub(r"(私信我|找我).{0,20}(门票|链接).*$", "", cleaned)
+    cleaned = cleaned.rstrip("，。！？,.!、 ")
+    return cleaned
+
+
+def _normalize_cta(text: str) -> str:
+    cleaned = str(text or "").strip()
+    cleaned = cleaned.replace("领取", "领")
+    cleaned = cleaned.replace("门票链接", "门票")
+    cleaned = cleaned.replace("获取门票", "免费领门票")
+    cleaned = cleaned.replace("领门票链接", "领门票")
+    cleaned = cleaned.replace("免费领取门票", "免费领门票")
+    cleaned = cleaned.replace("免费领取门票链接", "免费领门票")
+    cleaned = cleaned.rstrip("，。！？,.!、 ")
+    if "免费领门票" not in cleaned:
+        cleaned = "感兴趣可以私信我免费领门票"
+    return f"{cleaned}。"
+
+
 def _fallback_reply(lead: dict) -> str:
-    return _config.get_template_by_keyword(lead.get("keyword") or "")
+    template = _config.get_template_by_keyword(lead.get("keyword") or "")
+    body = _strip_ticket_cta(template)
+    if not body:
+        body = "展会现场这类品牌和资源会更集中一些"
+    return _compose_reply(body)
 
 
 def _contains_any(text: str, terms: list[str]) -> bool:
@@ -131,12 +179,13 @@ def _build_messages(lead: dict) -> list[dict[str, str]]:
 def _normalize_body(text: str) -> str:
     cleaned = str(text or "").strip()
     cleaned = cleaned.replace("\r", " ").replace("\n", " ")
+    cleaned = cleaned.replace("CIBE", "展会")
     cleaned = re.sub(r"\s+", " ", cleaned)
     cleaned = cleaned.strip("`\"'")
     if not cleaned:
         return ""
     cleaned = re.sub(
-        r"^(\u6211\u8fd9\u8fb9\u662f\u7f8e\u4e1a\u5c55\u4f1a\u7684|\u6211\u662f\u505a\u7f8e\u4e1a\u5c55\u4f1a\u7684|\u6211\u4eec\u662f\u7f8e\u4e1a\u5c55\u4f1a\u7684)[\uff0c, ]*",
+        r"^(我这边是美业展会的|我是做美业展会的|我们是美业展会的|我这边是展会的|展会这边|我们展会现场这边)[\uff0c, ]*",
         "",
         cleaned,
     ).strip()
@@ -148,10 +197,30 @@ def _normalize_body(text: str) -> str:
 
 
 def _compose_reply(body: str) -> str:
-    cta = _config.LOCAL_LLM_TICKET_CTA.strip()
-    if not body:
-        return cta
-    return f"{INTRO_PREFIX}\uff0c{body}\uff0c{cta}"
+    body_text = _strip_ticket_cta(body)
+    if not body_text:
+        body_text = "展会现场这类品牌和资源会更集中一些"
+
+    configured_cta = _normalize_cta(_config.LOCAL_LLM_TICKET_CTA)
+    cta_variants = [configured_cta] if configured_cta else []
+    cta_variants.extend(item for item in CTA_VARIANTS if item != configured_cta)
+
+    total = len(INTRO_PREFIXES) * len(cta_variants)
+    start = _next_variant_index()
+    for offset in range(total):
+        variant_index = (start + offset) % total
+        intro = INTRO_PREFIXES[variant_index % len(INTRO_PREFIXES)]
+        cta = cta_variants[(variant_index // len(INTRO_PREFIXES)) % len(cta_variants)]
+        candidate = f"{intro}，{body_text}，{cta}"
+        if candidate not in _recent_auto_replies:
+            _recent_auto_replies.append(candidate)
+            return candidate
+
+    intro = INTRO_PREFIXES[start % len(INTRO_PREFIXES)]
+    cta = cta_variants[(start // len(INTRO_PREFIXES)) % len(cta_variants)]
+    candidate = f"{intro}，{body_text}，{cta}"
+    _recent_auto_replies.append(candidate)
+    return candidate
 
 
 def _ollama_chat(messages: list[dict[str, str]]) -> str:

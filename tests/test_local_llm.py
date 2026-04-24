@@ -2,6 +2,7 @@ from weibo_bot import db, local_llm, replier
 
 
 def test_generate_reply_for_lead_uses_ollama_and_wraps_with_intro_and_cta(monkeypatch):
+    monkeypatch.setattr(local_llm, "_reply_variant_index", 0, raising=False)
     monkeypatch.setattr(local_llm._config, "LOCAL_LLM_ENABLED", True, raising=False)
     monkeypatch.setattr(local_llm._config, "LOCAL_LLM_BASE_URL", "http://127.0.0.1:11434", raising=False)
     monkeypatch.setattr(local_llm._config, "LOCAL_LLM_MODEL", "qwen2.5:3b", raising=False)
@@ -9,7 +10,7 @@ def test_generate_reply_for_lead_uses_ollama_and_wraps_with_intro_and_cta(monkey
     monkeypatch.setattr(
         local_llm._config,
         "LOCAL_LLM_TICKET_CTA",
-        "\u611f\u5174\u8da3\u53ef\u4ee5\u627e\u6211\u514d\u8d39\u9886\u53d6\u95e8\u7968\u94fe\u63a5\u3002",
+        "感兴趣可以私信我，或者找我免费领门票。",
         raising=False,
     )
 
@@ -22,7 +23,7 @@ def test_generate_reply_for_lead_uses_ollama_and_wraps_with_intro_and_cta(monkey
         def json(self):
             return {
                 "message": {
-                    "content": "\u5c55\u4f1a\u73b0\u573a\u4f1a\u6709\u4e0d\u5c11\u5c01\u5c42\u548c\u7532\u6cb9\u80f6\u54c1\u724c\u53ef\u4ee5\u76f4\u63a5\u5bf9\u6bd4\u770b"
+                    "content": "展会现场会有不少封层和甲油胶品牌可以直接对比看"
                 }
             }
 
@@ -36,28 +37,29 @@ def test_generate_reply_for_lead_uses_ollama_and_wraps_with_intro_and_cta(monkey
 
     reply = local_llm.generate_reply_for_lead(
         {
-            "keyword": "\u7532\u6cb9\u80f6\u63a8\u8350",
-            "comment_text": "\u6709\u63a8\u8350\u7684\u5c01\u5c42\u5417<span>[doge]</span>",
+            "keyword": "甲油胶推荐",
+            "comment_text": "有推荐的封层吗<span>[doge]</span>",
         }
     )
 
-    assert (
-        reply
-        == "\u6211\u8fd9\u8fb9\u662f\u7f8e\u4e1a\u5c55\u4f1a\u7684\uff0c\u5c55\u4f1a\u73b0\u573a\u4f1a\u6709\u4e0d\u5c11\u5c01\u5c42\u548c\u7532\u6cb9\u80f6\u54c1\u724c\u53ef\u4ee5\u76f4\u63a5\u5bf9\u6bd4\u770b\uff0c\u611f\u5174\u8da3\u53ef\u4ee5\u627e\u6211\u514d\u8d39\u9886\u53d6\u95e8\u7968\u94fe\u63a5\u3002"
-    )
+    assert "CIBE" not in reply
+    assert "展会" in reply
+    assert "免费领门票" in reply
+    assert "私信我" in reply or "找我" in reply
     assert captured["url"] == "http://127.0.0.1:11434/api/chat"
     assert captured["json"]["model"] == "qwen2.5:3b"
     assert captured["json"]["stream"] is False
-    assert "\u6709\u63a8\u8350\u7684\u5c01\u5c42\u5417" in captured["json"]["messages"][1]["content"]
+    assert "有推荐的封层吗" in captured["json"]["messages"][1]["content"]
     assert "<span>" not in captured["json"]["messages"][1]["content"]
 
 
 def test_generate_reply_for_lead_strips_duplicate_intro(monkeypatch):
+    monkeypatch.setattr(local_llm, "_reply_variant_index", 0, raising=False)
     monkeypatch.setattr(local_llm._config, "LOCAL_LLM_ENABLED", True, raising=False)
     monkeypatch.setattr(
         local_llm._config,
         "LOCAL_LLM_TICKET_CTA",
-        "\u611f\u5174\u8da3\u53ef\u4ee5\u627e\u6211\u514d\u8d39\u9886\u53d6\u95e8\u7968\u94fe\u63a5\u3002",
+        "感兴趣可以私信我，或者找我免费领门票。",
         raising=False,
     )
 
@@ -68,28 +70,28 @@ def test_generate_reply_for_lead_strips_duplicate_intro(monkeypatch):
         def json(self):
             return {
                 "message": {
-                    "content": "\u6211\u8fd9\u8fb9\u662f\u7f8e\u4e1a\u5c55\u4f1a\u7684\uff0c\u73b0\u573a\u4f1a\u6709\u4e0d\u5c11\u57f9\u8bad\u548c\u6750\u6599\u54c1\u724c\u53ef\u4ee5\u76f4\u63a5\u4e86\u89e3"
+                    "content": "我这边是美业展会的，现场会有不少培训和材料品牌可以直接了解"
                 }
             }
 
     monkeypatch.setattr(local_llm.requests, "post", lambda *args, **kwargs: FakeResponse())
 
     reply = local_llm.generate_reply_for_lead(
-        {"keyword": "\u7f8e\u7532\u6559\u5b66", "comment_text": "\u6709\u6559\u7a0b\u63a8\u8350\u5417"}
+        {"keyword": "美甲教学", "comment_text": "有教程推荐吗"}
     )
 
-    assert (
-        reply
-        == "\u6211\u8fd9\u8fb9\u662f\u7f8e\u4e1a\u5c55\u4f1a\u7684\uff0c\u73b0\u573a\u4f1a\u6709\u4e0d\u5c11\u57f9\u8bad\u548c\u6750\u6599\u54c1\u724c\u53ef\u4ee5\u76f4\u63a5\u4e86\u89e3\uff0c\u611f\u5174\u8da3\u53ef\u4ee5\u627e\u6211\u514d\u8d39\u9886\u53d6\u95e8\u7968\u94fe\u63a5\u3002"
-    )
+    assert reply.count("我这边是") <= 1
+    assert "CIBE" not in reply
+    assert "免费领门票" in reply
 
 
 def test_generate_reply_for_lead_falls_back_to_keyword_template_on_failure(monkeypatch):
+    monkeypatch.setattr(local_llm, "_reply_variant_index", 0, raising=False)
     monkeypatch.setattr(local_llm._config, "LOCAL_LLM_ENABLED", True, raising=False)
     monkeypatch.setattr(
         local_llm._config,
         "get_template_by_keyword",
-        lambda keyword: f"fallback:{keyword}",
+        lambda keyword: "CIBE今年美甲区品牌比较全，有需要的话私信我获取门票。",
         raising=False,
     )
     monkeypatch.setattr(
@@ -99,26 +101,31 @@ def test_generate_reply_for_lead_falls_back_to_keyword_template_on_failure(monke
     )
 
     reply = local_llm.generate_reply_for_lead(
-        {"keyword": "\u7f8e\u7532\u5e97", "comment_text": "\u60f3\u5f00\u5e97"}
+        {"keyword": "美甲店", "comment_text": "想开店"}
     )
 
-    assert reply == "fallback:\u7f8e\u7532\u5e97"
+    assert "CIBE" not in reply
+    assert "展会" in reply
+    assert "免费领门票" in reply
 
 
 def test_generate_reply_for_lead_returns_keyword_template_when_disabled(monkeypatch):
+    monkeypatch.setattr(local_llm, "_reply_variant_index", 0, raising=False)
     monkeypatch.setattr(local_llm._config, "LOCAL_LLM_ENABLED", False, raising=False)
     monkeypatch.setattr(
         local_llm._config,
         "get_template_by_keyword",
-        lambda keyword: f"fallback:{keyword}",
+        lambda keyword: "CIBE今年美甲区品牌比较全，有需要的话私信我获取门票。",
         raising=False,
     )
 
     reply = local_llm.generate_reply_for_lead(
-        {"keyword": "\u7a7f\u6234\u7532", "comment_text": "\u60f3\u62ff\u8d27"}
+        {"keyword": "穿戴甲", "comment_text": "想拿货"}
     )
 
-    assert reply == "fallback:\u7a7f\u6234\u7532"
+    assert "CIBE" not in reply
+    assert "展会" in reply
+    assert "免费领门票" in reply
 
 
 def test_generate_reply_for_lead_returns_none_for_unrelated_comment(monkeypatch):
@@ -126,8 +133,8 @@ def test_generate_reply_for_lead_returns_none_for_unrelated_comment(monkeypatch)
 
     reply = local_llm.generate_reply_for_lead(
         {
-            "keyword": "\u732b\u773c\u7f8e\u7532\u63a8\u8350",
-            "comment_text": "\u4e3d\u4e3d\u4f60\u4e4b\u524d\u63a8\u8350\u7684\u889c\u5b50\u8fd8\u6709\u94fe\u63a5\u5417\uff08\u4e0d\u662f\u5206\u8dbe\u889c\uff09",
+            "keyword": "猫眼美甲推荐",
+            "comment_text": "丽丽你之前推荐的袜子还有链接吗（不是分趾袜）",
         }
     )
 
@@ -148,11 +155,12 @@ def test_generate_reply_for_lead_returns_none_without_clear_demand(monkeypatch):
 
 
 def test_generate_reply_for_lead_accepts_clear_demand_for_guodong_tie(monkeypatch):
+    monkeypatch.setattr(local_llm, "_reply_variant_index", 0, raising=False)
     monkeypatch.setattr(local_llm._config, "LOCAL_LLM_ENABLED", False, raising=False)
     monkeypatch.setattr(
         local_llm._config,
         "get_template_by_keyword",
-        lambda keyword: f"fallback:{keyword}",
+        lambda keyword: "CIBE现场有不少果冻胶相关品牌，有需要的话私信我获取门票。",
         raising=False,
     )
 
@@ -163,7 +171,29 @@ def test_generate_reply_for_lead_accepts_clear_demand_for_guodong_tie(monkeypatc
         }
     )
 
-    assert reply == "fallback:果冻贴"
+    assert "CIBE" not in reply
+    assert "展会" in reply
+
+
+def test_generate_reply_for_lead_rotates_auto_match_copy(monkeypatch):
+    monkeypatch.setattr(local_llm, "_reply_variant_index", 0, raising=False)
+    monkeypatch.setattr(local_llm._config, "LOCAL_LLM_ENABLED", False, raising=False)
+    monkeypatch.setattr(
+        local_llm._config,
+        "get_template_by_keyword",
+        lambda keyword: "CIBE展会现场品牌和材料都比较全，有需要的话私信我获取门票。",
+        raising=False,
+    )
+
+    lead = {"keyword": "美甲", "comment_text": "有推荐的吗"}
+    first = local_llm.generate_reply_for_lead(lead)
+    second = local_llm.generate_reply_for_lead(lead)
+
+    assert first != second
+    assert "CIBE" not in first
+    assert "CIBE" not in second
+    assert "免费领门票" in first
+    assert "免费领门票" in second
 
 
 def test_run_reply_auto_match_uses_generated_local_reply(tmp_path, monkeypatch):
@@ -171,10 +201,10 @@ def test_run_reply_auto_match_uses_generated_local_reply(tmp_path, monkeypatch):
     db.init_db()
     db.insert_lead(
         "alice",
-        "\u4e0a\u6d77",
-        "\u6709\u63a8\u8350\u7684\u679c\u51bb\u80f6\u5417",
+        "上海",
+        "有推荐的果冻胶吗",
         "1001",
-        "\u7532\u6cb9\u80f6\u63a8\u8350",
+        "甲油胶推荐",
         comment_id="2001",
     )
     lead_id = db.get_all_leads()[0]["id"]
@@ -183,7 +213,7 @@ def test_run_reply_auto_match_uses_generated_local_reply(tmp_path, monkeypatch):
     monkeypatch.setattr(
         replier,
         "generate_reply_for_lead",
-        lambda lead: "\u6211\u8fd9\u8fb9\u662f\u7f8e\u4e1a\u5c55\u4f1a\u7684\uff0c\u73b0\u573a\u4f1a\u6709\u4e0d\u5c11\u7532\u6cb9\u80f6\u548c\u5c01\u5c42\u54c1\u724c\u53ef\u4ee5\u76f4\u63a5\u5bf9\u6bd4\u770b\uff0c\u611f\u5174\u8da3\u53ef\u4ee5\u627e\u6211\u514d\u8d39\u9886\u53d6\u95e8\u7968\u94fe\u63a5\u3002",
+        lambda lead: "展会现场会有不少甲油胶和封层品牌可以直接对比，感兴趣可以私信我免费领门票。",
         raising=False,
     )
 
@@ -194,7 +224,7 @@ def test_run_reply_auto_match_uses_generated_local_reply(tmp_path, monkeypatch):
     assert lead["status"] == "reviewed"
     assert (
         lead["reply_text"]
-        == "\u6211\u8fd9\u8fb9\u662f\u7f8e\u4e1a\u5c55\u4f1a\u7684\uff0c\u73b0\u573a\u4f1a\u6709\u4e0d\u5c11\u7532\u6cb9\u80f6\u548c\u5c01\u5c42\u54c1\u724c\u53ef\u4ee5\u76f4\u63a5\u5bf9\u6bd4\u770b\uff0c\u611f\u5174\u8da3\u53ef\u4ee5\u627e\u6211\u514d\u8d39\u9886\u53d6\u95e8\u7968\u94fe\u63a5\u3002"
+        == "展会现场会有不少甲油胶和封层品牌可以直接对比，感兴趣可以私信我免费领门票。"
     )
 
 
