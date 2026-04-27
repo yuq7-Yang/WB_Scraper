@@ -14,6 +14,19 @@ INTRO_PREFIXES = [
     "展会这边",
     "我们展会现场这边",
 ]
+EXPO_CTA_VARIANTS = [
+    "我这边是展会的，感兴趣可以找我免费领门票。",
+    "这边是展会现场，想了解的话可以找我免费领门票。",
+    "我们这边是展会方，有兴趣可以找我免费领门票。",
+    "我这边对接展会，想来的话可以找我免费领门票。",
+]
+BODY_COPY_VARIANTS = [
+    "{body}",
+    "你问的这个方向，现场可以集中看相关品牌、产品和资源",
+    "这类需求现场聊会更直观，相关产品和资源可以一起了解",
+    "如果你想重点了解这块，现场能直接对比相关方案",
+    "可以到现场看看同类资源，适合先对比再决定",
+]
 CTA_VARIANTS = [
     "感兴趣可以私信我免费领门票。",
     "想来的话可以找我免费领门票。",
@@ -22,32 +35,6 @@ CTA_VARIANTS = [
 ]
 _reply_variant_index = 0
 _recent_auto_replies: deque[str] = deque(maxlen=24)
-
-BEAUTY_SIGNALS = [
-    "\u7f8e\u7532",
-    "\u7f8e\u776b",
-    "\u776b\u6bdb",
-    "\u732b\u773c",
-    "\u7532\u6cb9\u80f6",
-    "\u679c\u51bb\u80f6",
-    "\u679c\u51bb\u8d34",
-    "\u80f6\u6c34",
-    "\u5c01\u5c42",
-    "\u7a7f\u6234\u7532",
-    "\u6b3e\u5f0f",
-    "\u7532\u7247",
-    "\u98df\u54c1",
-    "\u5f00\u5e97",
-    "\u62ff\u8d27",
-    "\u8fdb\u8d27",
-    "\u9009\u54c1",
-    "\u57f9\u8bad",
-    "\u6559\u7a0b",
-    "\u6750\u6599",
-    "\u5de5\u5177",
-    "\u54c1\u724c",
-    "\u5c55\u4f1a",
-]
 
 INTENT_SIGNALS = [
     "\u63a8\u8350",
@@ -68,6 +55,30 @@ INTENT_SIGNALS = [
     "\u8fdb\u8d27",
     "\u5f00\u5e97",
     "\u52a0\u76df",
+]
+
+STRONG_INTENT_SIGNALS = [
+    "\u60f3\u4e70",
+    "\u60f3\u8981",
+    "\u60f3\u5165",
+    "\u6c42\u63a8\u8350",
+    "\u63a8\u8350",
+    "\u94fe\u63a5",
+    "\u4ef7\u683c",
+    "\u591a\u5c11\u94b1",
+    "\u5728\u54ea\u4e70",
+    "\u54ea\u91cc\u4e70",
+    "\u600e\u4e48\u4e70",
+    "\u60f3\u5f00",
+    "\u5f00\u5e97",
+    "\u52a0\u76df",
+    "\u62ff\u8d27",
+    "\u8fdb\u8d27",
+    "\u91c7\u8d2d",
+    "\u6279\u53d1",
+    "\u4f9b\u5e94\u5546",
+    "\u57f9\u8bad",
+    "\u60f3\u5b66",
 ]
 
 UNRELATED_SIGNALS = [*UNRELATED_COMMENT_TERMS, "cpfd", "cpf"]
@@ -116,7 +127,10 @@ def _normalize_cta(text: str) -> str:
 
 
 def _fallback_reply(lead: dict) -> str:
-    template = _config.get_template_by_keyword(lead.get("keyword") or "")
+    template = _config.get_template_by_keyword(
+        lead.get("keyword") or "",
+        lead.get("comment_text") or "",
+    )
     body = _strip_ticket_cta(template)
     if not body:
         body = "展会现场这类品牌和资源会更集中一些"
@@ -128,8 +142,16 @@ def _contains_any(text: str, terms: list[str]) -> bool:
     return any(term.lower() in lowered for term in terms)
 
 
-def _has_beauty_context(keyword: str, comment_text: str) -> bool:
-    return _contains_any(keyword, BEAUTY_SIGNALS) or _contains_any(comment_text, BEAUTY_SIGNALS)
+def _has_keyword_context(keyword: str, comment_text: str) -> bool:
+    return bool(keyword and keyword in comment_text)
+
+
+def _has_strong_intent(text: str) -> bool:
+    return _contains_any(text, STRONG_INTENT_SIGNALS)
+
+
+def _is_unrelated_to_keyword(keyword: str, comment_text: str) -> bool:
+    return _contains_any(comment_text, UNRELATED_SIGNALS) and not _has_keyword_context(keyword, comment_text)
 
 
 def is_relevant_for_expo_reply(lead: dict) -> bool:
@@ -137,11 +159,53 @@ def is_relevant_for_expo_reply(lead: dict) -> bool:
     comment_text = sanitize_comment_text(lead.get("comment_text"))
     if not comment_text:
         return False
-    if _contains_any(comment_text, UNRELATED_SIGNALS) and not _contains_any(comment_text, BEAUTY_SIGNALS):
+    if _is_unrelated_to_keyword(keyword, comment_text):
         return False
-    if not _has_beauty_context(keyword, comment_text):
+    return _contains_any(comment_text, INTENT_SIGNALS) or _has_strong_intent(comment_text)
+
+
+def _build_intent_messages(lead: dict) -> list[dict[str, str]]:
+    keyword = sanitize_comment_text(lead.get("keyword"))
+    comment_text = sanitize_comment_text(lead.get("comment_text"))
+    return [
+        {
+            "role": "system",
+            "content": (
+                "你是微博评论意向判断助手。请判断这条微博评论是否有真实意向，"
+                "包括想买、想了解、求推荐、问价格、要链接、想加盟、想开店、想培训、想拿货、想采购等。"
+                "只根据评论本身和采集关键词判断，不要臆测。"
+                "如果只是夸一句、路过、玩梗、无明确需求，判断为否。"
+                "请严格用两行回复：\n有意向：是/否\n需求：一句话概括"
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"采集关键词：{keyword or '未提供'}\n"
+                f"评论内容：{comment_text or '未提供'}"
+            ),
+        },
+    ]
+
+
+def _parse_intent_decision(text: str) -> bool | None:
+    cleaned = str(text or "").strip().lower()
+    if not cleaned:
+        return None
+    if re.search(r"有意向\s*[:：]\s*(是|yes|y|true)", cleaned):
+        return True
+    if re.search(r"有意向\s*[:：]\s*(否|no|n|false)", cleaned):
         return False
-    return _contains_any(comment_text, INTENT_SIGNALS)
+    if re.search(r"^(是|yes|true)\b", cleaned):
+        return True
+    if re.search(r"^(否|no|false)\b", cleaned):
+        return False
+    return None
+
+
+def _llm_confirms_intent(lead: dict) -> bool | None:
+    content = _ollama_chat(_build_intent_messages(lead))
+    return _parse_intent_decision(content)
 
 
 def _build_messages(lead: dict) -> list[dict[str, str]]:
@@ -153,7 +217,7 @@ def _build_messages(lead: dict) -> list[dict[str, str]]:
         {
             "role": "system",
             "content": (
-                "\u4f60\u662f\u7f8e\u4e1a\u884c\u4e1a\u5c55\u4f1a\u7684\u5fae\u535a\u56de\u590d\u52a9\u624b\u3002"
+                "\u4f60\u662f\u884c\u4e1a\u5c55\u4f1a\u7684\u5fae\u535a\u56de\u590d\u52a9\u624b\u3002"
                 "\u8bf7\u6839\u636e\u8bc4\u8bba\u5185\u5bb9\u751f\u6210\u4e00\u6761\u534a\u5b98\u65b9\u3001\u534a\u81ea\u7136\u7684\u4e2d\u6587\u56de\u590d\u4e2d\u95f4\u6bb5\u3002"
                 "\u53ea\u8f93\u51fa\u4e00\u53e5\u77ed\u53e5\uff0c\u4e0d\u8981\u5e26\u5f00\u5934\u81ea\u6211\u4ecb\u7ecd\uff0c\u4e0d\u8981\u5e26\u7ed3\u5c3e\u5f15\u5bfc\u3002"
                 "\u5185\u5bb9\u5fc5\u987b\u5148\u7a81\u51fa\u6211\u4eec\u5c55\u4f1a\u73b0\u573a\u6709\u4ec0\u4e48\uff0c"
@@ -200,25 +264,20 @@ def _compose_reply(body: str) -> str:
     body_text = _strip_ticket_cta(body)
     if not body_text:
         body_text = "展会现场这类品牌和资源会更集中一些"
-
-    configured_cta = _normalize_cta(_config.LOCAL_LLM_TICKET_CTA)
-    cta_variants = [configured_cta] if configured_cta else []
-    cta_variants.extend(item for item in CTA_VARIANTS if item != configured_cta)
-
-    total = len(INTRO_PREFIXES) * len(cta_variants)
     start = _next_variant_index()
+    total = len(BODY_COPY_VARIANTS) * len(EXPO_CTA_VARIANTS)
     for offset in range(total):
-        variant_index = (start + offset) % total
-        intro = INTRO_PREFIXES[variant_index % len(INTRO_PREFIXES)]
-        cta = cta_variants[(variant_index // len(INTRO_PREFIXES)) % len(cta_variants)]
-        candidate = f"{intro}，{body_text}，{cta}"
+        variant_index = start + offset
+        body_variant = BODY_COPY_VARIANTS[variant_index % len(BODY_COPY_VARIANTS)]
+        cta = EXPO_CTA_VARIANTS[(variant_index // len(BODY_COPY_VARIANTS)) % len(EXPO_CTA_VARIANTS)]
+        varied_body = body_variant.format(body=body_text)
+        candidate = f"{varied_body}，{cta}"
         if candidate not in _recent_auto_replies:
             _recent_auto_replies.append(candidate)
             return candidate
-
-    intro = INTRO_PREFIXES[start % len(INTRO_PREFIXES)]
-    cta = cta_variants[(start // len(INTRO_PREFIXES)) % len(cta_variants)]
-    candidate = f"{intro}，{body_text}，{cta}"
+    body_variant = BODY_COPY_VARIANTS[start % len(BODY_COPY_VARIANTS)]
+    cta = EXPO_CTA_VARIANTS[(start // len(BODY_COPY_VARIANTS)) % len(EXPO_CTA_VARIANTS)]
+    candidate = f"{body_variant.format(body=body_text)}，{cta}"
     _recent_auto_replies.append(candidate)
     return candidate
 
@@ -242,15 +301,26 @@ def _ollama_chat(messages: list[dict[str, str]]) -> str:
 
 
 def generate_reply_for_lead(lead: dict) -> str | None:
-    if not is_relevant_for_expo_reply(lead):
+    keyword = sanitize_comment_text(lead.get("keyword"))
+    comment_text = sanitize_comment_text(lead.get("comment_text"))
+    if not comment_text or _is_unrelated_to_keyword(keyword, comment_text):
         return None
     if not _config.LOCAL_LLM_ENABLED:
+        if not is_relevant_for_expo_reply(lead):
+            return None
         return _fallback_reply(lead)
     try:
+        intent_decision = _llm_confirms_intent(lead)
+        if intent_decision is False and not _has_strong_intent(comment_text):
+            return None
+        if intent_decision is None and not is_relevant_for_expo_reply(lead):
+            return None
         content = _ollama_chat(_build_messages(lead))
         body = _normalize_body(content)
         if not body:
             raise RuntimeError("local llm returned unusable content")
         return _compose_reply(body)
     except Exception:
+        if not is_relevant_for_expo_reply(lead):
+            return None
         return _fallback_reply(lead)

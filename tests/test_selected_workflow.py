@@ -410,7 +410,9 @@ def test_dashboard_includes_updated_controls_and_safety_copy():
 
     html = response.get_data(as_text=True)
     assert response.status_code == 200
-    assert 'id="kwSuggest"' in html
+    assert 'id="kwSuggest"' not in html
+    assert "关键词提示" not in html
+    assert "buildSuggestGrid" not in html
     assert 'id="kwActive"' in html
     assert 'id="kwExtra"' in html
     assert 'id="maxPerKw"' in html
@@ -422,11 +424,11 @@ def test_dashboard_includes_updated_controls_and_safety_copy():
     assert 'class="real-send-confirm"' in html
     assert ".real-send-confirm { align-items: center; display: flex;" in html
     assert "真实发送" in html
-    assert "BEAUTY_TERMS" in html
-    assert "不在美业领域范围内" in html
+    assert "BEAUTY_TERMS" not in html
+    assert "不在美业领域范围内" not in html
 
 
-def test_dashboard_matches_plan_branding_and_blocks_invalid_keywords():
+def test_dashboard_matches_plan_branding_and_accepts_custom_keywords():
     client = build_logged_in_client()
 
     response = client.get("/")
@@ -436,5 +438,5 @@ def test_dashboard_matches_plan_branding_and_blocks_invalid_keywords():
     assert 'src="/static/logo.png"' in html
     assert "CIBE美博会" in html
     assert "美业精准拓客面板" in html
-    assert "已拦截" in html
+    assert "已拦截" not in html
     assert "confirm(`以下关键词不在美业领域范围内" not in html

@@ -4,6 +4,10 @@ import json
 import os
 from pathlib import Path
 
+from .config import load_env_file
+
+
+load_env_file()
 
 KEYWORDS_PATH = Path(os.getenv("ACTIVE_KEYWORDS_PATH", "active_keywords.json"))
 

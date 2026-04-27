@@ -20,6 +20,22 @@ def test_analyze_intent_classifies_consumer_comment():
     assert result["intent_score"] >= 3
 
 
+def test_analyze_intent_does_not_match_only_because_keyword_contains_intent_term():
+    result = scraper.analyze_intent("这个舞台设计挺高大上", keyword="美容仪器批发")
+
+    assert result["matched"] is False
+    assert result["intent_score"] == 0
+
+
+def test_analyze_intent_ignores_generic_project_comment_for_unrelated_keyword():
+    result = scraper.analyze_intent(
+        "大型文旅项目审批流程很严格，活动临时叫停也正常",
+        keyword="美容仪器批发",
+    )
+
+    assert result["matched"] is False
+
+
 def test_is_east_china_matches_known_regions():
     assert is_east_china("来自上海") is True
     assert is_east_china("来自广东") is False
@@ -75,7 +91,7 @@ def test_is_beauty_keyword_uses_beauty_terms_whitelist():
     assert is_beauty_keyword("上海美甲店") is True
     for keyword in ["穿戴甲", "甲片", "饰品", "工具设备", "半永久", "美甲店加盟", "美睫进货", "果冻胶", "果冻贴推荐"]:
         assert is_beauty_keyword(keyword) is True
-    assert is_beauty_keyword("周末露营") is False
+    assert is_beauty_keyword("周末露营") is True
 
 
 def test_has_intent_uses_intent_keyword_whitelist():
@@ -287,6 +303,30 @@ def test_run_scrape_rejects_unrelated_comments_and_saves_lead_metadata(tmp_path,
     assert by_user["b"]["intent_score"] >= 3
     assert by_user["c"]["lead_type"] == "b2b"
     assert by_user["c"]["intent_score"] >= 3
+
+
+def test_run_scrape_accepts_non_beauty_keyword_with_clear_intent(tmp_path, monkeypatch):
+    db.configure(str(tmp_path / "weibo.db"))
+    monkeypatch.setattr(scraper, "SCRAPFLY_KEY", "key")
+    monkeypatch.setattr(scraper, "COOKIES", ["cookie"])
+    monkeypatch.setattr(scraper.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(scraper, "search_posts", lambda *args, **kwargs: ["1001"])
+    monkeypatch.setattr(
+        scraper,
+        "fetch_comments",
+        lambda *args, **kwargs: [
+            {"source": "来自上海", "user": {"screen_name": "alice"}, "text": "这个露营灯有链接吗"},
+            {"source": "来自浙江", "user": {"screen_name": "bob"}, "text": "周末天气真好"},
+        ],
+    )
+
+    count = scraper.run_scrape(keywords=["露营灯"], max_per_keyword=10, max_total=10)
+
+    leads = db.get_all_leads()
+    assert count == 1
+    assert len(leads) == 1
+    assert leads[0]["user_name"] == "alice"
+    assert leads[0]["keyword"] == "露营灯"
 
 
 def test_run_scrape_uses_configured_post_and_keyword_delays(tmp_path, monkeypatch):

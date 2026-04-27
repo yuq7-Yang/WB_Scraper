@@ -53,7 +53,7 @@ def is_east_china(source: str | None) -> bool:
 
 
 def is_beauty_keyword(keyword: str) -> bool:
-    return any(term in keyword for term in BEAUTY_TERMS)
+    return bool((keyword or "").strip())
 
 
 def has_intent(text: str | None) -> bool:
@@ -94,26 +94,26 @@ def analyze_intent(text: str | None, keyword: str | None = None) -> dict[str, An
     consumer_score = 0
     b2b_hits = 0
     consumer_hits = 0
-    beauty_hits = 0
-
     for term in B2B_INTENT_TERMS:
-        if term in haystack:
+        if term in clean_text:
             b2b_score += 3
             b2b_hits += 1
     for term in CONSUMER_INTENT_TERMS:
-        if term in haystack:
+        if term in clean_text:
             consumer_score += 2
             consumer_hits += 1
     for term in BEAUTY_TERMS:
         if term in haystack:
             b2b_score += 1
             consumer_score += 1
-            beauty_hits += 1
+    if clean_keyword and clean_keyword in clean_text:
+        b2b_score += 1
+        consumer_score += 1
     for term in INTENT_KEYWORDS:
         if term in clean_text:
             consumer_score += 1
 
-    if beauty_hits == 0:
+    if b2b_hits == 0 and consumer_hits == 0:
         return {"matched": False, "lead_type": None, "intent_score": 0, "clean_text": clean_text}
 
     if b2b_hits > 0 and b2b_score >= MIN_B2B_INTENT_SCORE:

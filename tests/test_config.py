@@ -77,6 +77,14 @@ class TestGetTemplateByKeyword:
         assert "供应商" in result or "品牌商" in result
         assert "私信我获取门票" in result
 
+    def test_matches_comment_text_when_keyword_is_generic(self):
+        from weibo_bot import config
+
+        result = config.get_template_by_keyword("宠物展", "想开店的话加盟哪个品牌更稳")
+
+        assert "加盟" in result
+        assert "私信我获取门票" in result
+
     def test_open_shop(self):
         from weibo_bot import config
 

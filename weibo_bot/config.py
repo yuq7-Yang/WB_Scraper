@@ -246,8 +246,8 @@ B2B_INTENT_TERMS = [
     "学校",
     "代理",
     "选品",
-    "品牌",
-    "项目",
+    "品牌加盟",
+    "新项目",
 ]
 
 CONSUMER_INTENT_TERMS = [
@@ -503,21 +503,29 @@ KEYWORD_REPLY_MAP = [
         "id": "default",
         "keywords": [],
         "template": (
-            "CIBE是美业比较集中的展会，资源、品牌、培训都有，"
+            "CIBE展会现场资源、品牌、产品和项目比较集中，"
             "看你具体需要什么。有需要的话私信我获取门票。"
         ),
     },
 ]
 
 
-def get_template_by_keyword(keyword: str) -> str:
+def get_template_by_keyword(keyword: str, *extra_texts: str) -> str:
     kw = (keyword or "").strip()
     default = next(group["template"] for group in KEYWORD_REPLY_MAP if group["id"] == "default")
-    if not kw:
+    haystacks = [kw, *(str(text or "").strip() for text in extra_texts)]
+    haystacks = [text for text in haystacks if text]
+    if not haystacks:
         return default
 
     for group in KEYWORD_REPLY_MAP:
         for target in group["keywords"]:
-            if target in kw or kw in target:
-                return group["template"]
+            for text in haystacks:
+                if target in text or text in target:
+                    return group["template"]
+    if kw:
+        return (
+            f"CIBE展会现场会有不少{kw}相关品牌、产品和资源可以了解，"
+            "看你具体需要什么。有需要的话私信我获取门票。"
+        )
     return default

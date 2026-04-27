@@ -14,7 +14,6 @@ from flask import Flask, Response, jsonify, make_response, redirect, render_temp
 
 from . import db, keyword_store, template_store
 from .config import (
-    BEAUTY_TERMS,
     DEFAULT_MAX_PER_KEYWORD,
     DEFAULT_MAX_TOTAL,
     ENABLE_REAL_REPLIES,
@@ -344,8 +343,6 @@ HTML = """
 <main>
   <section class="box">
     <h2>1. 选择关键词</h2>
-    <div style="color:var(--muted); font-size:13px; margin-bottom:6px">关键词提示（点击加入采集列表）：</div>
-    <div class="kw-grid kw-suggest" id="kwSuggest"></div>
     <textarea class="kw-extra" id="kwExtra" placeholder="手动追加关键词，每行一个"></textarea>
     <div class="row" style="margin-top:8px">
       <button class="blue" onclick="addCustomKeywords()">添加关键词</button>
@@ -436,7 +433,6 @@ HTML = """
 </div>
 
 <script>
-const PRESETS = {{ keywords|tojson }};
 let ACTIVE_KEYWORDS = [];
 
 function persistActive() {
@@ -453,7 +449,6 @@ function loadActiveFromServer() {
   }).catch(() => {});
 }
 let TEMPLATES = {{ templates|tojson }};
-const BEAUTY_TERMS = {{ beauty_terms|tojson }};
 const REAL_SEND_ENABLED = {{ real_send_enabled|tojson }};
 const statusLabels = {
   pending: ["待回复", "pending"],
@@ -485,26 +480,6 @@ function postLink(postId) {
   return td;
 }
 
-function buildSuggestGrid() {
-  const grid = document.getElementById("kwSuggest");
-  grid.replaceChildren();
-  const active = new Set(ACTIVE_KEYWORDS);
-  PRESETS.forEach(kw => {
-    const chip = document.createElement("span");
-    chip.className = "kw-chip" + (active.has(kw) ? " used" : "");
-    chip.textContent = kw;
-    chip.title = active.has(kw) ? "已在采集列表中" : "点击加入采集列表";
-    chip.addEventListener("click", () => {
-      if (active.has(kw)) return;
-      ACTIVE_KEYWORDS.push(kw);
-      buildActiveGrid();
-      buildSuggestGrid();
-      persistActive();
-    });
-    grid.appendChild(chip);
-  });
-}
-
 function buildActiveGrid() {
   const grid = document.getElementById("kwActive");
   grid.replaceChildren();
@@ -512,7 +487,7 @@ function buildActiveGrid() {
     const hint = document.createElement("span");
     hint.style.color = "#9ca3af";
     hint.style.fontSize = "13px";
-    hint.textContent = "暂未选择，点击上方提示或手动追加后添加";
+    hint.textContent = "暂未选择，请在上方手动追加关键词后添加";
     grid.appendChild(hint);
     return;
   }
@@ -538,14 +513,12 @@ function buildActiveGrid() {
 function removeActiveKeyword(kw) {
   ACTIVE_KEYWORDS = ACTIVE_KEYWORDS.filter(item => item !== kw);
   buildActiveGrid();
-  buildSuggestGrid();
   persistActive();
 }
 
 function clearActiveKeywords() {
   ACTIVE_KEYWORDS = [];
   buildActiveGrid();
-  buildSuggestGrid();
   persistActive();
 }
 
@@ -554,18 +527,12 @@ function addCustomKeywords() {
   const msg = document.getElementById("kwAddMsg");
   const entries = textarea.value.split("\\n").map(item => item.trim()).filter(Boolean);
   if (!entries.length) { msg.textContent = "请输入关键词"; return; }
-  const invalid = entries.filter(keyword => !isBeautyKeyword(keyword));
-  if (invalid.length) {
-    alert(`关键词不在美业领域范围内，已拦截：\\n\\n${invalid.join("、")}\\n\\n请修改后重试。`);
-    return;
-  }
   const existing = new Set(ACTIVE_KEYWORDS);
   const added = [];
   entries.forEach(keyword => {
     if (!existing.has(keyword)) { ACTIVE_KEYWORDS.push(keyword); existing.add(keyword); added.push(keyword); }
   });
   buildActiveGrid();
-  buildSuggestGrid();
   textarea.value = "";
   msg.textContent = added.length ? `已添加 ${added.length} 个` : "关键词已存在";
   if (added.length) persistActive();
@@ -573,10 +540,6 @@ function addCustomKeywords() {
 
 function getSelectedKeywords() {
   return [...ACTIVE_KEYWORDS];
-}
-
-function isBeautyKeyword(keyword) {
-  return BEAUTY_TERMS.some(term => keyword.includes(term));
 }
 
 function canSelectForReply(status) {
@@ -882,7 +845,6 @@ stream.onmessage = event => {
 };
 
 loadActiveFromServer().then(() => {
-  buildSuggestGrid();
   buildActiveGrid();
 });
 handleAutoMatchToggle(true);
@@ -951,7 +913,6 @@ def index():
         HTML,
         keywords=KEYWORDS,
         templates=template_store.load_templates(),
-        beauty_terms=BEAUTY_TERMS,
         default_max_per_keyword=DEFAULT_MAX_PER_KEYWORD,
         default_max_total=DEFAULT_MAX_TOTAL,
         real_send_enabled=ENABLE_REAL_REPLIES,
